@@ -40,5 +40,8 @@ Thumbs.db
 # Environment
 .env
 
+# Claude Code local tooling state
+.claude/
+
 # Docker volumes data (if ever created locally)
 docker/data/
