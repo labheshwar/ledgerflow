@@ -3,8 +3,10 @@ package com.ledgerflow.service;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.exception.UnbalancedTransactionException;
+import com.ledgerflow.repository.TransactionRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 
@@ -14,12 +16,19 @@ public class PostingService {
     private static final int MAX_ATTEMPTS = 3;
 
     private final PostingExecutor postingExecutor;
+    private final TransactionRepository transactionRepository;
 
-    public PostingService(PostingExecutor postingExecutor) {
+    public PostingService(PostingExecutor postingExecutor, TransactionRepository transactionRepository) {
         this.postingExecutor = postingExecutor;
+        this.transactionRepository = transactionRepository;
     }
 
     public Transaction post(PostingCommand command) {
+        var existing = transactionRepository.findByIdempotencyKey(command.idempotencyKey());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
         validateBalanced(command);
 
         OptimisticLockingFailureException lastFailure = null;
@@ -28,6 +37,12 @@ public class PostingService {
                 return postingExecutor.execute(command);
             } catch (OptimisticLockingFailureException e) {
                 lastFailure = e;
+            } catch (DataIntegrityViolationException e) {
+                // Someone else won the race on this idempotency key between
+                // our check above and this insert -- return their result
+                // instead of double-posting or failing the caller.
+                return transactionRepository.findByIdempotencyKey(command.idempotencyKey())
+                        .orElseThrow(() -> e);
             }
         }
         throw lastFailure;
