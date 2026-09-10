@@ -1,0 +1,29 @@
+# Activated with `docker` profile: points at the Postgres/Redis/RabbitMQ
+# containers from docker-compose.yml. Host defaults assume the app runs on
+# the host machine talking to the compose-exposed ports; once the app itself
+# is containerized (a later milestone) these same keys get overridden via
+# environment variables to the in-network service names instead.
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ledgerflow}
+    username: ${POSTGRES_USER:ledgerflow}
+    password: ${POSTGRES_PASSWORD:change-me}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_DEFAULT_USER:ledgerflow}
+    password: ${RABBITMQ_DEFAULT_PASS:change-me}
