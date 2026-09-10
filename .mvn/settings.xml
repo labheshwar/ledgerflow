@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Project-local Maven settings. Forces dependency resolution to public Maven
+  Central regardless of any repository mirrors configured in a machine's
+  global ~/.m2/settings.xml (e.g. a corporate Artifactory proxy), so the
+  build is reproducible on any machine. Loaded automatically via
+  .mvn/maven.config ("-s .mvn/settings.xml").
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.1.0 http://maven.apache.org/xsd/settings-1.1.0.xsd">
+    <mirrors>
+        <mirror>
+            <id>central-mirror</id>
+            <mirrorOf>*</mirrorOf>
+            <url>https://repo.maven.apache.org/maven2/</url>
+        </mirror>
+    </mirrors>
+</settings>
