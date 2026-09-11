@@ -33,6 +33,9 @@ public class AuditLog {
     @Column(nullable = false, length = 50)
     private String action;
 
+    @Column(nullable = false, length = 100)
+    private String actor;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "before_state")
     private String beforeState;
@@ -48,10 +51,12 @@ public class AuditLog {
         // JPA
     }
 
-    public AuditLog(String entityType, Long entityId, String action, String beforeState, String afterState) {
+    public AuditLog(
+            String entityType, Long entityId, String action, String actor, String beforeState, String afterState) {
         this.entityType = entityType;
         this.entityId = entityId;
         this.action = action;
+        this.actor = actor;
         this.beforeState = beforeState;
         this.afterState = afterState;
     }
@@ -75,6 +80,10 @@ public class AuditLog {
 
     public String getAction() {
         return action;
+    }
+
+    public String getActor() {
+        return actor;
     }
 
     public String getBeforeState() {

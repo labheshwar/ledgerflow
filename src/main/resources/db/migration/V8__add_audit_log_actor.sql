@@ -1,0 +1,2 @@
+ALTER TABLE audit_log
+    ADD COLUMN actor VARCHAR(100) NOT NULL DEFAULT 'system';
