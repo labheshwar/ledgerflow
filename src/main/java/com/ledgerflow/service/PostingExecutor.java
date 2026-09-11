@@ -28,16 +28,19 @@ class PostingExecutor {
     private final TransactionRepository transactionRepository;
     private final EntryRepository entryRepository;
     private final AuditService auditService;
+    private final BalanceCacheEvictor balanceCacheEvictor;
 
     PostingExecutor(
             AccountRepository accountRepository,
             TransactionRepository transactionRepository,
             EntryRepository entryRepository,
-            AuditService auditService) {
+            AuditService auditService,
+            BalanceCacheEvictor balanceCacheEvictor) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.entryRepository = entryRepository;
         this.auditService = auditService;
+        this.balanceCacheEvictor = balanceCacheEvictor;
     }
 
     @Transactional
@@ -72,6 +75,8 @@ class PostingExecutor {
                 "TRANSACTION", transaction.getId(), "CREATE",
                 null,
                 Map.of("idempotencyKey", transaction.getIdempotencyKey(), "entryCount", command.entries().size()));
+
+        accountsById.keySet().forEach(balanceCacheEvictor::evictAfterCommit);
 
         return transaction;
     }

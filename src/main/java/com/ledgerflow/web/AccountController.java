@@ -27,7 +27,6 @@ public class AccountController {
 
     @GetMapping("/{id}/balance")
     public BalanceResponse getBalance(@PathVariable Long id) {
-        Account account = balanceService.getAccount(id);
-        return BalanceResponse.from(account);
+        return BalanceResponse.from(balanceService.getCachedBalance(id));
     }
 }
