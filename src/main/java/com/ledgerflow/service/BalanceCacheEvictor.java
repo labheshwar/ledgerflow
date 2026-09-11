@@ -17,7 +17,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Component
 public class BalanceCacheEvictor {
 
-    static final String CACHE_NAME = "accountBalances";
+    public static final String CACHE_NAME = "accountBalances";
 
     private final CacheManager cacheManager;
 
