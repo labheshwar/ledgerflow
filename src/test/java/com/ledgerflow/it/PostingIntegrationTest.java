@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ledgerflow.domain.Account;
+import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.domain.AuditLog;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.repository.AccountRepository;
@@ -87,6 +88,7 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
         Account account = new Account();
         account.setName(name);
         account.setCurrency("USD");
+        account.setType(AccountType.ASSET);
         return accountRepository.save(account);
     }
 }

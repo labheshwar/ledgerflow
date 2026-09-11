@@ -3,6 +3,7 @@ package com.ledgerflow.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ledgerflow.domain.Account;
+import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.service.AccountBalance;
@@ -41,6 +42,7 @@ class CacheIntegrationTest extends AbstractIntegrationTest {
         Account account = new Account();
         account.setName("IT Cache Account " + UUID.randomUUID());
         account.setCurrency("USD");
+        account.setType(AccountType.ASSET);
         account = accountRepository.save(account);
         Long accountId = account.getId();
         String cacheKey = BalanceCacheEvictor.CACHE_NAME + "::" + accountId;
@@ -48,6 +50,7 @@ class CacheIntegrationTest extends AbstractIntegrationTest {
         Account counterparty = new Account();
         counterparty.setName("IT Cache Counterparty " + UUID.randomUUID());
         counterparty.setCurrency("USD");
+        counterparty.setType(AccountType.ASSET);
         counterparty = accountRepository.save(counterparty);
 
         assertThat(redisTemplate.hasKey(cacheKey)).isFalse();
