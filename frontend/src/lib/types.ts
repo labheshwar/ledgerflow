@@ -11,6 +11,8 @@ export interface Account {
   type: AccountType
   currency: string
   balance: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface LedgerEntry {

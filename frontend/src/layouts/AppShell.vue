@@ -224,6 +224,9 @@ const navItems = [
   font-size: 22px;
   font-weight: 600;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .topbar .sub {
   color: var(--ink-soft);

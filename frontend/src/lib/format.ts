@@ -1,4 +1,4 @@
-import type { ReconciliationResultStatus, ReconciliationStatus } from './types'
+import type { EntryDirection, ReconciliationResultStatus, ReconciliationStatus } from './types'
 
 export function formatMoney(amount: number): string {
   return `Rs ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -20,6 +20,18 @@ export function formatDateTime(iso: string): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+}
+
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { dateStyle: 'medium' })
+}
+
+export function directionPillClass(direction: EntryDirection): string {
+  return direction === 'DEBIT' ? 'pill pill-green' : 'pill pill-red'
+}
+
+export function signedAmount(direction: EntryDirection, amount: number): string {
+  return (direction === 'DEBIT' ? '+' : '-') + formatMoney(amount)
 }
 
 export function reconciliationPillClass(status: ReconciliationStatus): string {
