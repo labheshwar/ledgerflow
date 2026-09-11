@@ -1,3 +1,7 @@
 spring:
   application:
     name: ledgerflow
+
+jwt:
+  secret: ${JWT_SECRET:dev-only-insecure-default-secret-key-please-override-me}
+  expiration-minutes: 60
