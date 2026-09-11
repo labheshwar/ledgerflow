@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -15,6 +16,17 @@ const router = createRouter({
     { path: '/reconciliation/:id', name: 'batch-detail', component: () => import('../views/BatchDetailView.vue') },
     { path: '/audit-log', name: 'audit-log', component: () => import('../views/AuditLogView.vue') },
   ],
+})
+
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+
+  if (to.name !== 'login' && !auth.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.name === 'login' && auth.isAuthenticated) {
+    return { name: 'dashboard' }
+  }
 })
 
 export default router

@@ -1,4 +1,15 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+
+const auth = useAuthStore()
+const router = useRouter()
+
+function signOut() {
+  auth.logout()
+  router.push({ name: 'login' })
+}
+
 const navItems = [
   {
     to: '/dashboard',
@@ -26,12 +37,6 @@ const navItems = [
     path: '<circle cx="8" cy="8" r="6"></circle><path d="M8 5.2v3l2 1.1"></path>',
   },
 ]
-
-defineProps<{
-  initials: string
-  userName: string
-  roleLabel: string
-}>()
 </script>
 
 <template>
@@ -55,12 +60,13 @@ defineProps<{
 
       <div class="spacer"></div>
       <div class="role-box">
-        <div class="avatar">{{ initials }}</div>
+        <div class="avatar">{{ auth.initials }}</div>
         <div>
-          <div class="who">{{ userName }}</div>
-          <div class="role-tag">{{ roleLabel }}</div>
+          <div class="who">{{ auth.username }}</div>
+          <div class="role-tag">{{ auth.role }}</div>
         </div>
       </div>
+      <button class="sign-out" @click="signOut">Sign out</button>
     </aside>
 
     <div class="main">
@@ -182,6 +188,18 @@ defineProps<{
   font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--ink-faint);
+}
+.sign-out {
+  background: none;
+  border: none;
+  padding: 6px 10px 0;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  text-align: left;
+}
+.sign-out:hover {
+  color: var(--green);
 }
 
 .main {
