@@ -34,6 +34,17 @@ public class ReconciliationController {
         this.producer = producer;
     }
 
+    @GetMapping
+    public List<ReconciliationBatchResponse> listBatches() {
+        return batchRepository.findAllByOrderByTriggeredAtDesc().stream()
+                .map(batch -> ReconciliationBatchResponse.from(
+                        batch,
+                        resultRepository.findByBatchId(batch.getId()).stream()
+                                .map(ReconciliationResultResponse::from)
+                                .toList()))
+                .toList();
+    }
+
     @PostMapping("/trigger")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ReconciliationBatchResponse trigger() {
