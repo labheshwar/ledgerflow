@@ -6,5 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface EntryRepository extends JpaRepository<Entry, Long> {
 
-    List<Entry> findByAccountId(Long accountId);
+    List<Entry> findByAccountIdOrderByCreatedAtAsc(Long accountId);
 }
