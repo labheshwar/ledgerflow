@@ -34,6 +34,14 @@ export function signedAmount(direction: EntryDirection, amount: number): string 
   return (direction === 'DEBIT' ? '+' : '-') + formatMoney(amount)
 }
 
+export function formatDuration(startIso: string, endIso: string | null): string {
+  if (!endIso) return 'Running…'
+  const totalSec = Math.max(0, Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000))
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return min > 0 ? `${min}m ${sec}s` : `${sec}s`
+}
+
 export function reconciliationPillClass(status: ReconciliationStatus): string {
   switch (status) {
     case 'COMPLETED':
@@ -41,7 +49,7 @@ export function reconciliationPillClass(status: ReconciliationStatus): string {
     case 'FAILED':
       return 'pill pill-red'
     default:
-      return 'pill pill-neutral'
+      return 'pill pill-amber'
   }
 }
 
