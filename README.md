@@ -87,10 +87,10 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-This brings up Postgres, Redis, RabbitMQ, and the app itself, waits for each dependency to be
-healthy before starting the app, and applies the Flyway migrations (including two seeded demo
-users and three demo accounts) on first boot. The app is then available at
-`http://localhost:8080`.
+This brings up Postgres, Redis, RabbitMQ, the app, and the web frontend, waits for each
+dependency to be healthy before starting the next, and applies the Flyway migrations
+(including two seeded demo users and three demo accounts) on first boot. The API is then
+available at `http://localhost:8080`, and the web UI at `http://localhost:8081`.
 
 ### Demo credentials
 
@@ -154,6 +154,32 @@ curl -s http://localhost:8080/reconciliation/$BATCH_ID -H "Authorization: Bearer
 The trigger call returns immediately (`202 Accepted`, status `PENDING`); the batch flips to
 `COMPLETED` shortly after, once the reconciliation worker has consumed the message and recorded
 a `MATCHED`/`MISMATCHED` result per account.
+
+## Frontend
+
+A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the
+original design mockups. It's a thin client over the API above — every page reads real data
+from the endpoints already described (accounts, transactions, reconciliation, audit log) and
+nothing is mocked. `ADMIN` sees posting/reconciliation controls; `VIEWER` gets the same pages
+read-only.
+
+Deliberately left out, matching gaps in the API itself: transaction reversal, CSV export, and
+per-discrepancy resolution — the reconciliation model here compares whole account balances, not
+individual bank-line items.
+
+In Docker, it's served by nginx at `http://localhost:8081`, with `/api/*` proxied to the `app`
+service (no CORS configuration needed since the browser only ever talks to one origin). For
+local development with hot reload against the backend from `docker compose`:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+This opens on `http://localhost:5173`, with Vite's dev server proxying `/api/*` to
+`http://localhost:8080` (see `vite.config.ts`). Log in with either demo account from the table
+above.
 
 ## Running tests
 
