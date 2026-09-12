@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import type { TransactionListItem } from '../lib/types'
+import type { Paged, TransactionListItem } from '../lib/types'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -14,7 +14,7 @@ const query = ref('')
 
 onMounted(async () => {
   try {
-    transactions.value = await apiFetch<TransactionListItem[]>('/transactions')
+    transactions.value = (await apiFetch<Paged<TransactionListItem>>('/transactions?size=200')).content
   } catch {
     errorText.value = 'Unable to load transactions.'
   } finally {

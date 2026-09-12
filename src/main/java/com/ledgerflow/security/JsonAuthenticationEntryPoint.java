@@ -33,7 +33,7 @@ public class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.UNAUTHORIZED.value(), HttpStatus.UNAUTHORIZED.getReasonPhrase(),
-                "A valid Bearer token is required");
+                "UNAUTHENTICATED", "A valid Bearer token is required");
         objectMapper.writeValue(response.getWriter(), body);
     }
 }

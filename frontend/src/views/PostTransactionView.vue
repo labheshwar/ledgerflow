@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { ApiError, apiFetch } from '../lib/api'
 import { formatMoney } from '../lib/format'
-import type { Account, EntryDirection, TransactionDetail } from '../lib/types'
+import type { Account, EntryDirection, Paged, TransactionDetail } from '../lib/types'
 
 interface DraftEntry {
   id: number
@@ -41,7 +41,7 @@ const lastPosted = ref<TransactionDetail | null>(null)
 
 onMounted(async () => {
   try {
-    accounts.value = await apiFetch<Account[]>('/accounts')
+    accounts.value = (await apiFetch<Paged<Account>>('/accounts?size=200')).content
     if (accounts.value.length > 0) {
       entries[0].accountId = accounts.value[0].id
       entries[1].accountId = accounts.value[1]?.id ?? accounts.value[0].id

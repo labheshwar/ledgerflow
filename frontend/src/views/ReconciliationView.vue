@@ -3,13 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { ApiError, apiFetch } from '../lib/api'
 import { formatDuration, formatRelativeTime, reconciliationPillClass } from '../lib/format'
-import type { ReconciliationBatch, ReconciliationStatus } from '../lib/types'
+import type { Paged, ReconciliationBatchSummary, ReconciliationStatus } from '../lib/types'
 import { useAuthStore } from '../stores/auth'
 
 const STATUSES: ReconciliationStatus[] = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED']
 
 const auth = useAuthStore()
-const batches = ref<ReconciliationBatch[]>([])
+const batches = ref<ReconciliationBatchSummary[]>([])
 const loading = ref(true)
 const errorText = ref('')
 const query = ref('')
@@ -18,7 +18,7 @@ const triggering = ref(false)
 
 async function load() {
   try {
-    batches.value = await apiFetch<ReconciliationBatch[]>('/reconciliation')
+    batches.value = (await apiFetch<Paged<ReconciliationBatchSummary>>('/reconciliation?size=200')).content
   } catch {
     errorText.value = 'Unable to load reconciliation batches.'
   } finally {
@@ -50,10 +50,6 @@ const filtered = computed(() => {
 
 function chipClass(status: ReconciliationStatus | 'ALL') {
   return 'chip' + (filter.value === status ? ' on' : '')
-}
-
-function discrepancyCount(batch: ReconciliationBatch): number {
-  return batch.results.filter((r) => r.status === 'MISMATCHED').length
 }
 </script>
 
@@ -102,7 +98,7 @@ function discrepancyCount(batch: ReconciliationBatch): number {
             <td>
               <span :class="reconciliationPillClass(b.status)">{{ b.status.replace('_', ' ') }}</span>
             </td>
-            <td class="num">{{ discrepancyCount(b) }}</td>
+            <td class="num">{{ b.mismatched }}</td>
             <td class="mono">{{ formatRelativeTime(b.triggeredAt) }}</td>
             <td class="mono">{{ formatDuration(b.triggeredAt, b.completedAt) }}</td>
           </tr>

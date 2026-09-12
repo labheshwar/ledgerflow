@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
 import { formatMoney, formatRelativeTime, reconciliationPillClass } from '../lib/format'
-import type { DashboardSummary, TransactionListItem } from '../lib/types'
+import type { DashboardSummary, Paged, TransactionListItem } from '../lib/types'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -19,10 +19,10 @@ onMounted(async () => {
   try {
     const [summaryData, transactions] = await Promise.all([
       apiFetch<DashboardSummary>('/dashboard/summary'),
-      apiFetch<TransactionListItem[]>('/transactions'),
+      apiFetch<Paged<TransactionListItem>>('/transactions?size=8'),
     ])
     summary.value = summaryData
-    recentTransactions.value = transactions.slice(0, 8)
+    recentTransactions.value = transactions.content
   } catch {
     errorText.value = 'Unable to load dashboard data.'
   } finally {

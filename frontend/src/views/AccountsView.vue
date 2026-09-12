@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
 import { accountTypePillClass, formatMoney, formatRelativeTime } from '../lib/format'
-import type { Account, AccountType } from '../lib/types'
+import type { Account, AccountType, Paged } from '../lib/types'
 
 const TYPES: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 
@@ -15,7 +15,7 @@ const filter = ref<AccountType | 'ALL'>('ALL')
 
 onMounted(async () => {
   try {
-    accounts.value = await apiFetch<Account[]>('/accounts')
+    accounts.value = (await apiFetch<Paged<Account>>('/accounts?size=200')).content
   } catch {
     errorText.value = 'Unable to load accounts.'
   } finally {

@@ -32,7 +32,7 @@ public class JsonAccessDeniedHandler implements AccessDeniedHandler {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         ErrorResponse body = ErrorResponse.of(
                 HttpStatus.FORBIDDEN.value(), HttpStatus.FORBIDDEN.getReasonPhrase(),
-                "You do not have permission to perform this action");
+                "FORBIDDEN", "You do not have permission to perform this action");
         objectMapper.writeValue(response.getWriter(), body);
     }
 }

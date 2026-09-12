@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
 import { formatDateTime } from '../lib/format'
-import type { AuditLogEntry } from '../lib/types'
+import type { AuditLogEntry, Paged } from '../lib/types'
 
 const ENTITY_TYPES = ['TRANSACTION', 'ACCOUNT']
 
@@ -15,7 +15,7 @@ const filter = ref<string>('ALL')
 
 onMounted(async () => {
   try {
-    entries.value = await apiFetch<AuditLogEntry[]>('/audit-log')
+    entries.value = (await apiFetch<Paged<AuditLogEntry>>('/audit-log?size=200')).content
   } catch {
     errorText.value = 'Unable to load the audit log.'
   } finally {

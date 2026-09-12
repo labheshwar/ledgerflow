@@ -155,6 +155,45 @@ The trigger call returns immediately (`202 Accepted`, status `PENDING`); the bat
 `COMPLETED` shortly after, once the reconciliation worker has consumed the message and recorded
 a `MATCHED`/`MISMATCHED` result per account.
 
+### Listing, paging and filtering
+
+Every list endpoint (`/accounts`, `/transactions`, `/reconciliation`, `/audit-log`) is paged and
+returns the same envelope:
+
+```json
+{ "content": [], "page": 0, "size": 25, "totalElements": 0, "totalPages": 0 }
+```
+
+They accept `page`, `size` and `sort` (`sort=balance,desc`), plus per-resource filters — `q` for
+a case-insensitive substring search, and `type` on accounts, `entityType` on the audit log,
+`status` on reconciliation:
+
+```bash
+curl -s "http://localhost:8080/accounts?type=ASSET&sort=balance,desc&size=5" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Sortable fields are whitelisted per endpoint; `?sort=` on anything else returns `400` with code
+`INVALID_SORT` rather than quietly exposing an unindexed or unintended column.
+
+### Errors
+
+Error responses carry a stable, machine-readable `code` alongside the human-readable `message`:
+
+```json
+{ "timestamp": "...", "status": 400, "error": "Bad Request",
+  "code": "UNBALANCED_TRANSACTION", "message": "..." }
+```
+
+Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVALID_SORT`,
+`INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_CREDENTIALS`, `UNAUTHENTICATED`, `FORBIDDEN`,
+`INTERNAL_ERROR`.
+
+### OpenAPI
+
+The generated spec is at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`, both unauthenticated
+so you can read the contract before you have a token.
+
 ## Frontend
 
 A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the

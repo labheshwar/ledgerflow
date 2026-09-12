@@ -5,6 +5,15 @@ export type ReconciliationStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FA
 export type ReconciliationResultStatus = 'MATCHED' | 'MISMATCHED'
 export type Role = 'ADMIN' | 'VIEWER'
 
+/** Mirrors the backend's PagedResponse envelope. */
+export interface Paged<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
 export interface Account {
   id: number
   name: string
@@ -57,6 +66,17 @@ export interface ReconciliationBatch {
   triggeredAt: string
   completedAt: string | null
   results: ReconciliationResult[]
+}
+
+/** The list projection: tallies rather than the full result set. */
+export interface ReconciliationBatchSummary {
+  id: number
+  status: ReconciliationStatus
+  triggeredAt: string
+  completedAt: string | null
+  accountsCompared: number
+  matched: number
+  mismatched: number
 }
 
 export interface AuditLogEntry {
