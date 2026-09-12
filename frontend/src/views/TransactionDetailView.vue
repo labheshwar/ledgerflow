@@ -24,10 +24,12 @@ onMounted(async () => {
 })
 
 const totalDebit = computed(
-  () => transaction.value?.entries.filter((e) => e.direction === 'DEBIT').reduce((s, e) => s + e.amount, 0) ?? 0,
+  () =>
+    transaction.value?.entries.filter((e) => e.direction === 'DEBIT').reduce((s, e) => s + e.amount, 0) ?? 0,
 )
 const totalCredit = computed(
-  () => transaction.value?.entries.filter((e) => e.direction === 'CREDIT').reduce((s, e) => s + e.amount, 0) ?? 0,
+  () =>
+    transaction.value?.entries.filter((e) => e.direction === 'CREDIT').reduce((s, e) => s + e.amount, 0) ?? 0,
 )
 </script>
 
@@ -59,7 +61,9 @@ const totalCredit = computed(
             </div>
             <div v-for="e in transaction.entries" :key="e.accountId + e.direction" class="entry-row">
               <div>{{ e.accountName }}</div>
-              <div><span :class="directionPillClass(e.direction)">{{ e.direction }}</span></div>
+              <div>
+                <span :class="directionPillClass(e.direction)">{{ e.direction }}</span>
+              </div>
               <div class="amt">{{ formatMoney(e.amount) }}</div>
             </div>
             <div class="slip-total">
@@ -71,10 +75,18 @@ const totalCredit = computed(
 
         <div class="card">
           <h2>Details</h2>
-          <div class="meta-row"><span class="k">Reference</span><span class="v">TXN-{{ transaction.id }}</span></div>
-          <div class="meta-row"><span class="k">Idempotency key</span><span class="v">{{ transaction.idempotencyKey }}</span></div>
-          <div class="meta-row"><span class="k">Description</span><span>{{ transaction.description || '—' }}</span></div>
-          <div class="meta-row"><span class="k">Posted at</span><span class="v">{{ formatDateTime(transaction.createdAt) }}</span></div>
+          <div class="meta-row">
+            <span class="k">Reference</span><span class="v">TXN-{{ transaction.id }}</span>
+          </div>
+          <div class="meta-row">
+            <span class="k">Idempotency key</span><span class="v">{{ transaction.idempotencyKey }}</span>
+          </div>
+          <div class="meta-row">
+            <span class="k">Description</span><span>{{ transaction.description || '—' }}</span>
+          </div>
+          <div class="meta-row">
+            <span class="k">Posted at</span><span class="v">{{ formatDateTime(transaction.createdAt) }}</span>
+          </div>
         </div>
       </div>
     </template>

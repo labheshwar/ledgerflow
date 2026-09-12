@@ -3,7 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
-import { formatDateTime, formatDuration, formatMoney, reconciliationPillClass, reconciliationResultPillClass } from '../lib/format'
+import {
+  formatDateTime,
+  formatDuration,
+  formatMoney,
+  reconciliationPillClass,
+  reconciliationResultPillClass,
+} from '../lib/format'
 import type { ReconciliationBatch } from '../lib/types'
 
 const route = useRoute()
@@ -24,13 +30,20 @@ onMounted(async () => {
 })
 
 const matchedCount = computed(() => batch.value?.results.filter((r) => r.status === 'MATCHED').length ?? 0)
-const mismatchedCount = computed(() => batch.value?.results.filter((r) => r.status === 'MISMATCHED').length ?? 0)
+const mismatchedCount = computed(
+  () => batch.value?.results.filter((r) => r.status === 'MISMATCHED').length ?? 0,
+)
 </script>
 
 <template>
   <AppShell>
     <template #title>
-      <template v-if="batch">BATCH-{{ batch.id }} <span :class="reconciliationPillClass(batch.status)">{{ batch.status.replace('_', ' ') }}</span></template>
+      <template v-if="batch"
+        >BATCH-{{ batch.id }}
+        <span :class="reconciliationPillClass(batch.status)">{{
+          batch.status.replace('_', ' ')
+        }}</span></template
+      >
       <template v-else>Reconciliation batch</template>
     </template>
     <template #sub><RouterLink to="/reconciliation">← Back to reconciliation</RouterLink></template>
@@ -53,7 +66,9 @@ const mismatchedCount = computed(() => batch.value?.results.filter((r) => r.stat
         </div>
         <div class="stat-card">
           <div class="label">Ran</div>
-          <div class="value mono" style="font-size: 15px">{{ formatDuration(batch.triggeredAt, batch.completedAt) }}</div>
+          <div class="value mono" style="font-size: 15px">
+            {{ formatDuration(batch.triggeredAt, batch.completedAt) }}
+          </div>
           <div class="delta">{{ formatDateTime(batch.triggeredAt) }}</div>
         </div>
       </div>
@@ -69,24 +84,21 @@ const mismatchedCount = computed(() => batch.value?.results.filter((r) => r.stat
             <th>Status</th>
           </tr>
           <tr v-for="r in batch.results" :key="r.accountId">
-            <td><RouterLink :to="`/accounts/${r.accountId}`">{{ r.accountName }}</RouterLink></td>
+            <td>
+              <RouterLink :to="`/accounts/${r.accountId}`">{{ r.accountName }}</RouterLink>
+            </td>
             <td class="num">{{ formatMoney(r.ledgerBalance) }}</td>
             <td class="num">{{ formatMoney(r.externalBalance) }}</td>
             <td class="num">{{ formatMoney(r.ledgerBalance - r.externalBalance) }}</td>
-            <td><span :class="reconciliationResultPillClass(r.status)">{{ r.status }}</span></td>
+            <td>
+              <span :class="reconciliationResultPillClass(r.status)">{{ r.status }}</span>
+            </td>
           </tr>
         </table>
-        <div v-if="batch.results.length === 0" class="empty">No results yet — this batch hasn't completed.</div>
+        <div v-if="batch.results.length === 0" class="empty">
+          No results yet — this batch hasn't completed.
+        </div>
       </div>
     </template>
   </AppShell>
 </template>
-
-<style scoped>
-.empty {
-  padding: 36px 16px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-</style>

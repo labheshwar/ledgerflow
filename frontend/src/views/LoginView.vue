@@ -39,15 +39,21 @@ async function submit() {
       <form @submit.prevent="submit">
         <div class="field">
           <label>Username</label>
-          <input class="input" type="text" placeholder="admin" v-model="form.username" autocomplete="username" />
+          <input
+            v-model="form.username"
+            class="input"
+            type="text"
+            placeholder="admin"
+            autocomplete="username"
+          />
         </div>
         <div class="field">
           <label>Password</label>
           <input
+            v-model="form.password"
             class="input"
             type="password"
             placeholder="••••••••"
-            v-model="form.password"
             autocomplete="current-password"
           />
         </div>
@@ -77,7 +83,9 @@ async function submit() {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 32px;
-  box-shadow: 0 2px 8px rgba(27, 36, 32, 0.06), 0 1px 0 rgba(27, 36, 32, 0.02);
+  box-shadow:
+    0 2px 8px rgba(27, 36, 32, 0.06),
+    0 1px 0 rgba(27, 36, 32, 0.02);
 }
 .mark {
   width: 34px;

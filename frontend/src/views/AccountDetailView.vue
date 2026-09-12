@@ -3,7 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
-import { accountTypePillClass, directionPillClass, formatDate, formatMoney, formatRelativeTime, signedAmount } from '../lib/format'
+import {
+  accountTypePillClass,
+  directionPillClass,
+  formatDate,
+  formatMoney,
+  formatRelativeTime,
+  signedAmount,
+} from '../lib/format'
 import type { Account, LedgerEntry } from '../lib/types'
 
 const route = useRoute()
@@ -55,10 +62,22 @@ const pagedEntries = computed(() => entries.value.slice((page.value - 1) * perPa
         <div class="card">
           <div class="label">Account details</div>
           <div class="meta-grid">
-            <div><div class="k">Account ID</div><div class="v">#{{ account.id }}</div></div>
-            <div><div class="k">Currency</div><div class="v">{{ account.currency }}</div></div>
-            <div><div class="k">Type</div><div class="v">{{ account.type }}</div></div>
-            <div><div class="k">Opened</div><div class="v">{{ formatDate(account.createdAt) }}</div></div>
+            <div>
+              <div class="k">Account ID</div>
+              <div class="v">#{{ account.id }}</div>
+            </div>
+            <div>
+              <div class="k">Currency</div>
+              <div class="v">{{ account.currency }}</div>
+            </div>
+            <div>
+              <div class="k">Type</div>
+              <div class="v">{{ account.type }}</div>
+            </div>
+            <div>
+              <div class="k">Opened</div>
+              <div class="v">{{ formatDate(account.createdAt) }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -74,8 +93,12 @@ const pagedEntries = computed(() => entries.value.slice((page.value - 1) * perPa
             <th>Time</th>
           </tr>
           <tr v-for="e in pagedEntries" :key="e.id">
-            <td class="mono"><RouterLink :to="`/transactions/${e.transactionId}`">TXN-{{ e.transactionId }}</RouterLink></td>
-            <td><span :class="directionPillClass(e.direction)">{{ e.direction }}</span></td>
+            <td class="mono">
+              <RouterLink :to="`/transactions/${e.transactionId}`">TXN-{{ e.transactionId }}</RouterLink>
+            </td>
+            <td>
+              <span :class="directionPillClass(e.direction)">{{ e.direction }}</span>
+            </td>
             <td class="num">{{ signedAmount(e.direction, e.amount) }}</td>
             <td class="num">{{ formatMoney(e.runningBalance) }}</td>
             <td class="mono" style="color: var(--ink-soft)">{{ formatRelativeTime(e.createdAt) }}</td>
@@ -137,42 +160,5 @@ const pagedEntries = computed(() => entries.value.slice((page.value - 1) * perPa
 .meta-grid .v {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 13px;
-}
-.empty {
-  padding: 36px 16px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-top: 1px solid var(--line);
-}
-.pager .info {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-.pager .btns {
-  display: flex;
-  gap: 8px;
-}
-.pgbtn {
-  font-family: 'IBM Plex Sans', sans-serif;
-  font-size: 12px;
-  padding: 6px 12px;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: var(--raised);
-  color: var(--ink);
-}
-.pgbtn:hover {
-  border-color: var(--green-line);
-}
-.pgbtn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 </style>

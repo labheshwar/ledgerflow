@@ -6,7 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json",
+    "lint": "eslint . --max-warnings=0",
+    "check:styles": "node scripts/check-promoted-styles.mjs",
+    "format": "prettier --write src",
+    "format:check": "prettier --check src",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "pinia": "^4.0.3",
@@ -14,11 +21,21 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.8",
+    "@vue/test-utils": "^2.5.0",
     "@vue/tsconfig": "^0.9.1",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.0",
+    "happy-dom": "^20.14.5",
+    "prettier": "^3.9.6",
     "typescript": "~6.0.2",
+    "typescript-eslint": "^8.70.0",
     "vite": "^8.3.0",
+    "vitest": "^5.0.0",
+    "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.11"
   }
 }

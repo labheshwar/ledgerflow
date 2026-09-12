@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 
 const auth = useAuthStore()
+const toasts = useToastStore()
 const router = useRouter()
 
 function signOut() {
   auth.logout()
   router.push({ name: 'login' })
+  toasts.success('Signed out')
 }
 
 const navItems = [
@@ -54,6 +57,7 @@ const navItems = [
         class="nav-item"
         active-class="active"
       >
+        <!-- eslint-disable-next-line vue/no-v-html -- item.path is a hardcoded SVG constant in this file, never user input -->
         <svg viewBox="0 0 16 16" v-html="item.path"></svg>
         {{ item.label }}
       </RouterLink>

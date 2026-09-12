@@ -66,7 +66,9 @@ onMounted(async () => {
             <div class="value">
               <span :class="reconciliationPillClass(latestBatch.status)">{{ latestBatch.status }}</span>
             </div>
-            <div class="delta">BATCH-{{ latestBatch.id }} · {{ formatRelativeTime(latestBatch.triggeredAt) }}</div>
+            <div class="delta">
+              BATCH-{{ latestBatch.id }} · {{ formatRelativeTime(latestBatch.triggeredAt) }}
+            </div>
           </template>
           <template v-else>
             <div class="value"><span class="pill pill-neutral">NONE</span></div>
@@ -88,9 +90,13 @@ onMounted(async () => {
             <th>Time</th>
           </tr>
           <tr v-for="txn in recentTransactions" :key="txn.id">
-            <td class="mono"><RouterLink :to="`/transactions/${txn.id}`">TXN-{{ txn.id }}</RouterLink></td>
+            <td class="mono">
+              <RouterLink :to="`/transactions/${txn.id}`">TXN-{{ txn.id }}</RouterLink>
+            </td>
             <td>{{ txn.description || '—' }}</td>
-            <td><span class="pill pill-green">{{ txn.status }}</span></td>
+            <td>
+              <span class="pill pill-green">{{ txn.status }}</span>
+            </td>
             <td class="mono" style="color: var(--ink-soft)">{{ formatRelativeTime(txn.createdAt) }}</td>
           </tr>
         </table>
@@ -99,12 +105,3 @@ onMounted(async () => {
     </template>
   </AppShell>
 </template>
-
-<style scoped>
-.empty {
-  padding: 36px 16px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-</style>

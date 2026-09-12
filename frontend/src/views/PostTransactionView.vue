@@ -51,6 +51,11 @@ onMounted(async () => {
   }
 })
 
+function regenerateKey() {
+  idempotencyKey.value = genIdempotencyKey()
+  touchedIdemp.value = false
+}
+
 function isAmountValid(amount: string): boolean {
   const v = parseFloat(amount)
   return amount.trim().length > 0 && !isNaN(v) && v > 0
@@ -76,7 +81,9 @@ const balanced = computed(() => difference.value === 0 && totalDebit.value > 0)
 
 const showAmountErrors = computed(() => touchedAmounts.value || submitAttempted.value)
 const allAmountsValid = computed(() => entries.every((e) => isAmountValid(e.amount)))
-const showIdempError = computed(() => (touchedIdemp.value || submitAttempted.value) && idempotencyKey.value.trim().length === 0)
+const showIdempError = computed(
+  () => (touchedIdemp.value || submitAttempted.value) && idempotencyKey.value.trim().length === 0,
+)
 const idempValid = computed(() => idempotencyKey.value.trim().length > 0)
 const allAccountsSelected = computed(() => entries.every((e) => e.accountId != null))
 
@@ -134,7 +141,12 @@ function startNew() {
   entries.splice(0, entries.length)
   entries.push(
     { id: nextId++, accountId: accounts.value[0]?.id ?? null, direction: 'DEBIT', amount: '' },
-    { id: nextId++, accountId: accounts.value[1]?.id ?? accounts.value[0]?.id ?? null, direction: 'CREDIT', amount: '' },
+    {
+      id: nextId++,
+      accountId: accounts.value[1]?.id ?? accounts.value[0]?.id ?? null,
+      direction: 'CREDIT',
+      amount: '',
+    },
   )
 }
 </script>
@@ -151,7 +163,7 @@ function startNew() {
           <h2>Entries</h2>
           <div class="field" style="margin-bottom: 16px">
             <label>Description (optional)</label>
-            <input class="input" v-model="description" placeholder="What is this transaction for?" />
+            <input v-model="description" class="input" placeholder="What is this transaction for?" />
           </div>
 
           <div class="row-head">
@@ -161,17 +173,29 @@ function startNew() {
             <div></div>
           </div>
           <div v-for="row in entries" :key="row.id" class="entry-row">
-            <select class="input" v-model.number="row.accountId">
+            <select v-model.number="row.accountId" class="input">
               <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
             <div class="dirseg">
-              <button :class="{ on: row.direction === 'DEBIT' }" class="debit" @click="row.direction = 'DEBIT'">DR</button>
-              <button :class="{ on: row.direction === 'CREDIT' }" class="credit" @click="row.direction = 'CREDIT'">CR</button>
+              <button
+                :class="{ on: row.direction === 'DEBIT' }"
+                class="debit"
+                @click="row.direction = 'DEBIT'"
+              >
+                DR
+              </button>
+              <button
+                :class="{ on: row.direction === 'CREDIT' }"
+                class="credit"
+                @click="row.direction = 'CREDIT'"
+              >
+                CR
+              </button>
             </div>
             <input
+              v-model="row.amount"
               class="input amt"
               :class="{ error: showAmountErrors && !isAmountValid(row.amount) }"
-              v-model="row.amount"
               placeholder="0.00"
               @input="touchedAmounts = true"
             />
@@ -187,14 +211,12 @@ function startNew() {
             <label>Idempotency key</label>
             <div class="idemp-row">
               <input
+                v-model="idempotencyKey"
                 class="input mono"
                 :class="{ error: showIdempError }"
-                v-model="idempotencyKey"
                 @input="touchedIdemp = true"
               />
-              <button class="btn" type="button" @click="idempotencyKey = genIdempotencyKey(); touchedIdemp = false">
-                Regenerate
-              </button>
+              <button class="btn" type="button" @click="regenerateKey">Regenerate</button>
             </div>
             <div v-if="showIdempError" class="row-error">Idempotency key is required.</div>
           </div>
@@ -202,10 +224,16 @@ function startNew() {
 
         <div class="card balancecard">
           <h2>Balance check</h2>
-          <div class="num-row"><span>Total debits</span><span class="v">{{ formatMoney(totalDebit) }}</span></div>
-          <div class="num-row"><span>Total credits</span><span class="v">{{ formatMoney(totalCredit) }}</span></div>
+          <div class="num-row">
+            <span>Total debits</span><span class="v">{{ formatMoney(totalDebit) }}</span>
+          </div>
+          <div class="num-row">
+            <span>Total credits</span><span class="v">{{ formatMoney(totalCredit) }}</span>
+          </div>
           <hr />
-          <div class="num-row"><span>Difference</span><span class="v">{{ formatMoney(Math.abs(difference)) }}</span></div>
+          <div class="num-row">
+            <span>Difference</span><span class="v">{{ formatMoney(Math.abs(difference)) }}</span>
+          </div>
           <div :class="['status', canSubmit ? 'ok' : 'bad']">{{ statusText }}</div>
           <div v-if="errorText" class="field-error" style="margin-top: 10px">{{ errorText }}</div>
           <button class="submit" :disabled="!canSubmit || submitting" @click="submit">
@@ -225,14 +253,29 @@ function startNew() {
           <div style="font-size: 12.5px; color: var(--ink-soft); margin-bottom: 14px">
             Written atomically · audit log updated
           </div>
-          <div class="receipt-row"><span>Reference</span><span class="mono">TXN-{{ lastPosted.id }}</span></div>
-          <div class="receipt-row"><span>Idempotency key</span><span class="mono">{{ lastPosted.idempotencyKey }}</span></div>
-          <div class="receipt-row"><span>Status</span><span class="pill pill-green">{{ lastPosted.status }}</span></div>
+          <div class="receipt-row">
+            <span>Reference</span><span class="mono">TXN-{{ lastPosted.id }}</span>
+          </div>
+          <div class="receipt-row">
+            <span>Idempotency key</span><span class="mono">{{ lastPosted.idempotencyKey }}</span>
+          </div>
+          <div class="receipt-row">
+            <span>Status</span><span class="pill pill-green">{{ lastPosted.status }}</span>
+          </div>
           <div v-for="e in lastPosted.entries" :key="e.accountId + e.direction" class="receipt-row">
-            <span>{{ e.accountName }} <span :class="e.direction === 'DEBIT' ? 'pill pill-red' : 'pill pill-green'">{{ e.direction }}</span></span>
+            <span
+              >{{ e.accountName }}
+              <span :class="e.direction === 'DEBIT' ? 'pill pill-red' : 'pill pill-green'">{{
+                e.direction
+              }}</span></span
+            >
             <span class="mono">{{ formatMoney(e.amount) }}</span>
           </div>
-          <RouterLink class="newbtn" :to="`/transactions/${lastPosted.id}`" style="display: block; text-align: center; text-decoration: none">
+          <RouterLink
+            class="newbtn"
+            :to="`/transactions/${lastPosted.id}`"
+            style="display: block; text-align: center; text-decoration: none"
+          >
             View transaction
           </RouterLink>
           <button class="newbtn" @click="startNew">Post another transaction</button>
@@ -240,8 +283,9 @@ function startNew() {
         <div class="card">
           <h2>What just happened</h2>
           <div style="font-size: 12.5px; color: var(--ink-soft); line-height: 1.6">
-            The idempotency key was checked first — no existing transaction matched it, so the entries were validated
-            (debits = credits), written inside one transaction, and each account's Redis balance key was invalidated.
+            The idempotency key was checked first — no existing transaction matched it, so the entries were
+            validated (debits = credits), written inside one transaction, and each account's Redis balance key
+            was invalidated.
           </div>
         </div>
       </div>

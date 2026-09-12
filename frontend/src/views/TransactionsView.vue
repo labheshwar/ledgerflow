@@ -36,7 +36,9 @@ const filtered = computed(() => {
     <template #title>Transactions</template>
     <template #sub>{{ filtered.length }} of {{ transactions.length }} transactions</template>
     <template #actions>
-      <RouterLink v-if="auth.isAdmin" class="btn btn-primary" to="/transactions/new">Post transaction</RouterLink>
+      <RouterLink v-if="auth.isAdmin" class="btn btn-primary" to="/transactions/new"
+        >Post transaction</RouterLink
+      >
     </template>
 
     <p v-if="loading">Loading…</p>
@@ -44,7 +46,10 @@ const filtered = computed(() => {
     <template v-else>
       <div class="toolbar">
         <div class="search">
-          <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l3.2 3.2"></path></svg>
+          <svg viewBox="0 0 16 16">
+            <circle cx="7" cy="7" r="5"></circle>
+            <path d="M11 11l3.2 3.2"></path>
+          </svg>
           <input v-model="query" placeholder="Search transactions…" />
         </div>
       </div>
@@ -58,9 +63,13 @@ const filtered = computed(() => {
             <th>Posted at</th>
           </tr>
           <tr v-for="t in filtered" :key="t.id">
-            <td class="mono"><RouterLink :to="`/transactions/${t.id}`">TXN-{{ t.id }}</RouterLink></td>
+            <td class="mono">
+              <RouterLink :to="`/transactions/${t.id}`">TXN-{{ t.id }}</RouterLink>
+            </td>
             <td>{{ t.description || '—' }}</td>
-            <td><span class="pill pill-green">{{ t.status }}</span></td>
+            <td>
+              <span class="pill pill-green">{{ t.status }}</span>
+            </td>
             <td class="mono" style="color: var(--ink-soft)">{{ formatDateTime(t.createdAt) }}</td>
           </tr>
         </table>
@@ -69,44 +78,3 @@ const filtered = computed(() => {
     </template>
   </AppShell>
 </template>
-
-<style scoped>
-.toolbar {
-  display: flex;
-  margin-bottom: 14px;
-}
-.search {
-  position: relative;
-  width: 260px;
-}
-.search svg {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  stroke: var(--ink-faint);
-  fill: none;
-  stroke-width: 1.6;
-}
-.search input {
-  width: 100%;
-  padding: 8px 10px 8px 30px;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: var(--raised);
-  color: var(--ink);
-  font-size: 13px;
-}
-.search input:focus {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-.empty {
-  padding: 36px 16px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-</style>

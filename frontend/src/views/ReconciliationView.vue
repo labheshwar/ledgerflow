@@ -72,7 +72,10 @@ function discrepancyCount(batch: ReconciliationBatch): number {
     <template v-else>
       <div class="toolbar">
         <div class="search">
-          <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l3.2 3.2"></path></svg>
+          <svg viewBox="0 0 16 16">
+            <circle cx="7" cy="7" r="5"></circle>
+            <path d="M11 11l3.2 3.2"></path>
+          </svg>
           <input v-model="query" placeholder="Search batches…" />
         </div>
         <div class="filters">
@@ -93,8 +96,12 @@ function discrepancyCount(batch: ReconciliationBatch): number {
             <th>Duration</th>
           </tr>
           <tr v-for="b in filtered" :key="b.id">
-            <td class="mono"><RouterLink :to="`/reconciliation/${b.id}`">BATCH-{{ b.id }}</RouterLink></td>
-            <td><span :class="reconciliationPillClass(b.status)">{{ b.status.replace('_', ' ') }}</span></td>
+            <td class="mono">
+              <RouterLink :to="`/reconciliation/${b.id}`">BATCH-{{ b.id }}</RouterLink>
+            </td>
+            <td>
+              <span :class="reconciliationPillClass(b.status)">{{ b.status.replace('_', ' ') }}</span>
+            </td>
             <td class="num">{{ discrepancyCount(b) }}</td>
             <td class="mono">{{ formatRelativeTime(b.triggeredAt) }}</td>
             <td class="mono">{{ formatDuration(b.triggeredAt, b.completedAt) }}</td>
@@ -105,71 +112,3 @@ function discrepancyCount(batch: ReconciliationBatch): number {
     </template>
   </AppShell>
 </template>
-
-<style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-.search {
-  position: relative;
-  width: 240px;
-}
-.search svg {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  stroke: var(--ink-faint);
-  fill: none;
-  stroke-width: 1.6;
-}
-.search input {
-  width: 100%;
-  padding: 8px 10px 8px 30px;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: var(--raised);
-  color: var(--ink);
-  font-size: 13px;
-}
-.search input:focus {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-.filters {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.chip {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 6px 11px;
-  border-radius: 20px;
-  border: 1px solid var(--line);
-  background: var(--raised);
-  color: var(--ink-soft);
-}
-.chip:hover {
-  border-color: var(--green-line);
-  color: var(--ink);
-}
-.chip.on {
-  background: var(--green);
-  border-color: var(--green);
-  color: var(--paper);
-}
-.empty {
-  padding: 36px 16px;
-  text-align: center;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-</style>
