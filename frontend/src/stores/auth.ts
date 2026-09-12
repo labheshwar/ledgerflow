@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { apiFetch, clearToken, getToken, setToken } from '../lib/api'
+import { apiFetch, clearToken, getToken, setToken } from '@/lib/http'
 
 interface JwtPayload {
   sub: string
@@ -30,8 +30,20 @@ export const useAuthStore = defineStore('auth', {
     payload(state): JwtPayload | null {
       return state.token ? decodeToken(state.token) : null
     },
+    /** Seconds since the epoch, matching the JWT's own units. */
+    expiresAt(): number | null {
+      return this.payload?.exp ?? null
+    },
+    isExpired(): boolean {
+      const exp = this.expiresAt
+      return exp !== null && exp * 1000 <= Date.now()
+    },
+    /**
+     * An expired token is treated as no token, so the router redirects to
+     * login instead of letting every request 401 behind a blank screen.
+     */
     isAuthenticated(state): boolean {
-      return !!state.token
+      return !!state.token && !this.isExpired
     },
     username(): string {
       return this.payload?.sub ?? ''

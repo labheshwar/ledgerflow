@@ -1,80 +1,91 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import AppShell from '../layouts/AppShell.vue'
-import { apiFetch } from '../lib/api'
-import { formatDateTime } from '../lib/format'
-import type { Paged, TransactionListItem } from '../lib/types'
-import { useAuthStore } from '../stores/auth'
+import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
+import DataTable, { type Column } from '@/components/data/DataTable.vue'
+import Pager from '@/components/data/Pager.vue'
+import SearchInput from '@/components/data/SearchInput.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import PageState from '@/components/feedback/PageState.vue'
+import AppShell from '@/layouts/AppShell.vue'
+import { listTransactions, transactionKeys } from '@/lib/api/transactions'
+import { formatDateTime } from '@/lib/format'
+import type { TransactionListItem } from '@/lib/types'
+import { useAuthStore } from '@/stores/auth'
+import { useListQuery } from '@/composables/useListQuery'
+
+const COLUMNS: Column[] = [
+  { key: 'id', label: 'Reference', sortBy: 'idempotencyKey', class: 'mono' },
+  { key: 'description', label: 'Description', sortBy: 'description' },
+  { key: 'status', label: 'Status', sortBy: 'status' },
+  { key: 'createdAt', label: 'Posted at', sortBy: 'createdAt', class: 'mono' },
+]
 
 const auth = useAuthStore()
-const transactions = ref<TransactionListItem[]>([])
-const loading = ref(true)
-const errorText = ref('')
-const query = ref('')
+const { state, params, qInput, setPage, setSort } = useListQuery({ defaultSort: 'createdAt,desc' })
 
-onMounted(async () => {
-  try {
-    transactions.value = (await apiFetch<Paged<TransactionListItem>>('/transactions?size=200')).content
-  } catch {
-    errorText.value = 'Unable to load transactions.'
-  } finally {
-    loading.value = false
-  }
-})
-
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (q === '') return transactions.value
-  return transactions.value.filter(
-    (t) => (t.description ?? '').toLowerCase().includes(q) || `txn-${t.id}`.includes(q),
-  )
+const { data, isPending, error } = useQuery({
+  queryKey: computed(() => transactionKeys.list(params.value)),
+  queryFn: ({ signal }) => listTransactions(params.value, signal),
 })
 </script>
 
 <template>
   <AppShell>
     <template #title>Transactions</template>
-    <template #sub>{{ filtered.length }} of {{ transactions.length }} transactions</template>
+    <template #sub>
+      <span v-if="data">{{ data.totalElements }} transactions</span>
+    </template>
     <template #actions>
-      <RouterLink v-if="auth.isAdmin" class="btn btn-primary" to="/transactions/new"
-        >Post transaction</RouterLink
+      <RouterLink v-if="auth.isAdmin" class="btn btn-primary" to="/transactions/new">
+        Post transaction
+      </RouterLink>
+    </template>
+
+    <div class="toolbar">
+      <SearchInput v-model="qInput" placeholder="Search description or key…" />
+    </div>
+
+    <div class="tablecard">
+      <PageState
+        :loading="isPending"
+        :error="error"
+        :empty="data?.content.length === 0"
+        error-text="Unable to load transactions."
+        :skeleton-rows="6"
       >
-    </template>
+        <template #empty>
+          <EmptyState title="No transactions match that search." hint="Try a different term." />
+        </template>
 
-    <p v-if="loading">Loading…</p>
-    <p v-else-if="errorText" class="field-error">{{ errorText }}</p>
-    <template v-else>
-      <div class="toolbar">
-        <div class="search">
-          <svg viewBox="0 0 16 16">
-            <circle cx="7" cy="7" r="5"></circle>
-            <path d="M11 11l3.2 3.2"></path>
-          </svg>
-          <input v-model="query" placeholder="Search transactions…" />
-        </div>
-      </div>
+        <DataTable
+          :columns="COLUMNS"
+          :rows="data?.content ?? []"
+          :row-key="(row: TransactionListItem) => row.id"
+          :sort="String(state.sort)"
+          @update:sort="setSort"
+        >
+          <template #cell:id="{ row }">
+            <RouterLink :to="`/transactions/${row.id}`">TXN-{{ row.id }}</RouterLink>
+          </template>
+          <template #cell:description="{ row }">{{ row.description || '—' }}</template>
+          <template #cell:status="{ row }">
+            <span class="pill pill-green">{{ row.status }}</span>
+          </template>
+          <template #cell:createdAt="{ row }">
+            <span style="color: var(--ink-soft)">{{ formatDateTime(row.createdAt) }}</span>
+          </template>
+        </DataTable>
 
-      <div class="tablecard">
-        <table>
-          <tr>
-            <th>Reference</th>
-            <th>Description</th>
-            <th>Status</th>
-            <th>Posted at</th>
-          </tr>
-          <tr v-for="t in filtered" :key="t.id">
-            <td class="mono">
-              <RouterLink :to="`/transactions/${t.id}`">TXN-{{ t.id }}</RouterLink>
-            </td>
-            <td>{{ t.description || '—' }}</td>
-            <td>
-              <span class="pill pill-green">{{ t.status }}</span>
-            </td>
-            <td class="mono" style="color: var(--ink-soft)">{{ formatDateTime(t.createdAt) }}</td>
-          </tr>
-        </table>
-        <div v-if="filtered.length === 0" class="empty">No transactions match "{{ query }}".</div>
-      </div>
-    </template>
+        <Pager
+          v-if="data && data.totalPages > 1"
+          :page="data.page"
+          :size="data.size"
+          :total-elements="data.totalElements"
+          :total-pages="data.totalPages"
+          noun="transactions"
+          @update:page="setPage"
+        />
+      </PageState>
+    </div>
   </AppShell>
 </template>

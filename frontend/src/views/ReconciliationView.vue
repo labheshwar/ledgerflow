@@ -1,56 +1,67 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import AppShell from '../layouts/AppShell.vue'
-import { ApiError, apiFetch } from '../lib/api'
-import { formatDuration, formatRelativeTime, reconciliationPillClass } from '../lib/format'
-import type { Paged, ReconciliationBatchSummary, ReconciliationStatus } from '../lib/types'
-import { useAuthStore } from '../stores/auth'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { computed } from 'vue'
+import DataTable, { type Column } from '@/components/data/DataTable.vue'
+import FilterChips from '@/components/data/FilterChips.vue'
+import Pager from '@/components/data/Pager.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import PageState from '@/components/feedback/PageState.vue'
+import AppShell from '@/layouts/AppShell.vue'
+import { listBatches, reconciliationKeys, triggerReconciliation } from '@/lib/api/reconciliation'
+import { ApiError } from '@/lib/http'
+import { formatDuration, formatRelativeTime, reconciliationPillClass } from '@/lib/format'
+import type { ReconciliationBatchSummary } from '@/lib/types'
+import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
+import { useListQuery } from '@/composables/useListQuery'
 
-const STATUSES: ReconciliationStatus[] = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED']
+const STATUS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'IN_PROGRESS', label: 'In progress' },
+  { value: 'COMPLETED', label: 'Completed' },
+  { value: 'FAILED', label: 'Failed' },
+]
+
+const COLUMNS: Column[] = [
+  { key: 'id', label: 'Batch', class: 'mono' },
+  { key: 'status', label: 'Status', sortBy: 'status' },
+  { key: 'mismatched', label: 'Discrepancies', align: 'right' },
+  { key: 'triggeredAt', label: 'Started', sortBy: 'triggeredAt', class: 'mono' },
+  { key: 'duration', label: 'Duration', sortBy: 'completedAt', class: 'mono' },
+]
 
 const auth = useAuthStore()
-const batches = ref<ReconciliationBatchSummary[]>([])
-const loading = ref(true)
-const errorText = ref('')
-const query = ref('')
-const filter = ref<ReconciliationStatus | 'ALL'>('ALL')
-const triggering = ref(false)
+const toasts = useToastStore()
+const queryClient = useQueryClient()
 
-async function load() {
-  try {
-    batches.value = (await apiFetch<Paged<ReconciliationBatchSummary>>('/reconciliation?size=200')).content
-  } catch {
-    errorText.value = 'Unable to load reconciliation batches.'
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
-
-async function runReconciliation() {
-  triggering.value = true
-  errorText.value = ''
-  try {
-    await apiFetch('/reconciliation/trigger', { method: 'POST' })
-    await load()
-  } catch (e) {
-    errorText.value = e instanceof ApiError ? e.message : 'Unable to trigger reconciliation.'
-  } finally {
-    triggering.value = false
-  }
-}
-
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  return batches.value.filter(
-    (b) => (filter.value === 'ALL' || b.status === filter.value) && (q === '' || `batch-${b.id}`.includes(q)),
-  )
+const { state, params, setFilter, setPage, setSort } = useListQuery({
+  filters: { status: '' },
+  defaultSort: 'triggeredAt,desc',
 })
 
-function chipClass(status: ReconciliationStatus | 'ALL') {
-  return 'chip' + (filter.value === status ? ' on' : '')
-}
+const { data, isPending, error } = useQuery({
+  queryKey: computed(() => reconciliationKeys.list(params.value)),
+  queryFn: ({ signal }) => listBatches(params.value, signal),
+})
+
+const statusFilter = computed({
+  get: () => String(state.value.status ?? ''),
+  set: (value: string) => setFilter('status', value),
+})
+
+const trigger = useMutation({
+  mutationFn: triggerReconciliation,
+  onSuccess: (batch) => {
+    // The worker consumes the message asynchronously, so the batch lands as
+    // PENDING and flips to COMPLETED moments later -- refetch to show it.
+    queryClient.invalidateQueries({ queryKey: reconciliationKeys.all })
+    toasts.success(`Reconciliation BATCH-${batch.id} queued`)
+  },
+  onError: (e) => {
+    toasts.error(e instanceof ApiError ? e.message : 'Unable to trigger reconciliation.')
+  },
+})
 </script>
 
 <template>
@@ -58,53 +69,64 @@ function chipClass(status: ReconciliationStatus | 'ALL') {
     <template #title>Reconciliation</template>
     <template #sub>Async batches compare ledger balances against the external statement feed</template>
     <template #actions>
-      <button v-if="auth.isAdmin" class="btn btn-primary" :disabled="triggering" @click="runReconciliation">
-        {{ triggering ? 'Starting…' : 'Run reconciliation' }}
+      <button
+        v-if="auth.isAdmin"
+        class="btn btn-primary"
+        :disabled="trigger.isPending.value"
+        @click="trigger.mutate()"
+      >
+        {{ trigger.isPending.value ? 'Starting…' : 'Run reconciliation' }}
       </button>
     </template>
 
-    <p v-if="loading">Loading…</p>
-    <p v-else-if="errorText" class="field-error">{{ errorText }}</p>
-    <template v-else>
-      <div class="toolbar">
-        <div class="search">
-          <svg viewBox="0 0 16 16">
-            <circle cx="7" cy="7" r="5"></circle>
-            <path d="M11 11l3.2 3.2"></path>
-          </svg>
-          <input v-model="query" placeholder="Search batches…" />
-        </div>
-        <div class="filters">
-          <button :class="chipClass('ALL')" @click="filter = 'ALL'">All</button>
-          <button v-for="s in STATUSES" :key="s" :class="chipClass(s)" @click="filter = s">
-            {{ s.replace('_', ' ') }}
-          </button>
-        </div>
-      </div>
+    <div class="toolbar">
+      <FilterChips v-model="statusFilter" :options="STATUS_OPTIONS" />
+    </div>
 
-      <div class="tablecard">
-        <table>
-          <tr>
-            <th>Batch</th>
-            <th>Status</th>
-            <th style="text-align: right">Discrepancies</th>
-            <th>Started</th>
-            <th>Duration</th>
-          </tr>
-          <tr v-for="b in filtered" :key="b.id">
-            <td class="mono">
-              <RouterLink :to="`/reconciliation/${b.id}`">BATCH-{{ b.id }}</RouterLink>
-            </td>
-            <td>
-              <span :class="reconciliationPillClass(b.status)">{{ b.status.replace('_', ' ') }}</span>
-            </td>
-            <td class="num">{{ b.mismatched }}</td>
-            <td class="mono">{{ formatRelativeTime(b.triggeredAt) }}</td>
-            <td class="mono">{{ formatDuration(b.triggeredAt, b.completedAt) }}</td>
-          </tr>
-        </table>
-        <div v-if="filtered.length === 0" class="empty">No batches match "{{ query }}".</div>
-      </div>
-    </template>
+    <div class="tablecard">
+      <PageState
+        :loading="isPending"
+        :error="error"
+        :empty="data?.content.length === 0"
+        error-text="Unable to load reconciliation batches."
+        :skeleton-rows="5"
+      >
+        <template #empty>
+          <EmptyState
+            title="No reconciliation batches yet."
+            hint="Run one to compare ledger balances against the statement feed."
+          />
+        </template>
+
+        <DataTable
+          :columns="COLUMNS"
+          :rows="data?.content ?? []"
+          :row-key="(row: ReconciliationBatchSummary) => row.id"
+          :sort="String(state.sort)"
+          @update:sort="setSort"
+        >
+          <template #cell:id="{ row }">
+            <RouterLink :to="`/reconciliation/${row.id}`">BATCH-{{ row.id }}</RouterLink>
+          </template>
+          <template #cell:status="{ row }">
+            <span :class="reconciliationPillClass(row.status)">{{ row.status.replace('_', ' ') }}</span>
+          </template>
+          <template #cell:triggeredAt="{ row }">{{ formatRelativeTime(row.triggeredAt) }}</template>
+          <template #cell:duration="{ row }">
+            {{ formatDuration(row.triggeredAt, row.completedAt) }}
+          </template>
+        </DataTable>
+
+        <Pager
+          v-if="data && data.totalPages > 1"
+          :page="data.page"
+          :size="data.size"
+          :total-elements="data.totalElements"
+          :total-pages="data.totalPages"
+          noun="batches"
+          @update:page="setPage"
+        />
+      </PageState>
+    </div>
   </AppShell>
 </template>
