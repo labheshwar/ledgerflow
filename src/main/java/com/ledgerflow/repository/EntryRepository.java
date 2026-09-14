@@ -21,10 +21,18 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
      * before it wrong. Transaction and entry id break ties so two entries on
      * the same day always fold in the same order, which matters because an
      * unstable sort would make the same statement print differently twice.
+     *
+     * JOIN FETCH, not a plain JOIN. A plain join makes txnDate available to
+     * ORDER BY but leaves e.transaction an uninitialized proxy, so the caller
+     * -- which reads the date off every row to build the statement -- throws
+     * LazyInitializationException the moment the repository's own transaction
+     * closes. With open-in-view disabled that is a 500 on every request to
+     * this endpoint, and it does not reproduce in a test that mocks the
+     * repository.
      */
     @Query("""
             SELECT e FROM Entry e
-            JOIN e.transaction t
+            JOIN FETCH e.transaction t
             WHERE e.account.id = :accountId
             ORDER BY t.txnDate ASC, t.id ASC, e.id ASC
             """)

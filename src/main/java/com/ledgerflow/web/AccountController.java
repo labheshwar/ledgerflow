@@ -1,8 +1,8 @@
 package com.ledgerflow.web;
 
-import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
-import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountBalanceQueries;
+import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.service.BalanceService;
 import com.ledgerflow.web.dto.AccountResponse;
 import com.ledgerflow.web.dto.BalanceResponse;
@@ -27,11 +27,11 @@ public class AccountController {
     private static final Set<String> SORTABLE = Set.of("name", "type", "balance", "currency", "updatedAt");
 
     private final BalanceService balanceService;
-    private final AccountRepository accountRepository;
+    private final AccountBalanceQueries accountBalanceQueries;
 
-    public AccountController(BalanceService balanceService, AccountRepository accountRepository) {
+    public AccountController(BalanceService balanceService, AccountBalanceQueries accountBalanceQueries) {
         this.balanceService = balanceService;
-        this.accountRepository = accountRepository;
+        this.accountBalanceQueries = accountBalanceQueries;
     }
 
     @GetMapping
@@ -41,18 +41,18 @@ public class AccountController {
             @ParameterObject @PageableDefault(size = 25) Pageable pageable) {
 
         Pageable sorted = SortWhitelist.apply(pageable, SORTABLE, Sort.by("name").ascending());
-        return PagedResponse.from(accountRepository.search(q, type, sorted), AccountResponse::from);
+        return PagedResponse.from(accountBalanceQueries.search(q, type, sorted), AccountResponse::from);
     }
 
     @GetMapping("/{id}")
     public AccountResponse getAccount(@PathVariable Long id) {
-        Account account = balanceService.getAccount(id);
+        AccountWithBalance account = balanceService.getAccount(id);
         return AccountResponse.from(account);
     }
 
     @GetMapping("/{id}/balance")
     public BalanceResponse getBalance(@PathVariable Long id) {
-        return BalanceResponse.from(balanceService.getCachedBalance(id));
+        return BalanceResponse.from(balanceService.getBalance(id));
     }
 
     @GetMapping("/{id}/entries")

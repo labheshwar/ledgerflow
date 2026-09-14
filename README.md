@@ -26,9 +26,10 @@ a reconciliation process against an external source of truth, and a permanent au
   retried request (client timeout, dropped connection) is recognized and returns the original
   result instead of posting twice — including the case where two requests with the same key
   race each other.
-- **Cached balance reads** — account balances are cached in Redis (cache-aside), invalidated
-  the instant a posting touches that account, so the fast read path never risks serving stale
-  data.
+- **Balances are derived, never stored** — an account balance is the sum of its entries, read
+  through periodic snapshots so the sum stays bounded as history grows. There is no balance
+  column to drift from the entries that explain it, and posting no longer contends on the
+  account row, so two people invoicing at once never collide.
 - **Asynchronous reconciliation** — triggering a reconciliation queues a message on RabbitMQ
   and returns immediately; a separate worker compares the ledger against a simulated external
   statement feed, records per-account matches/mismatches, and marks the batch complete or
@@ -70,11 +71,11 @@ flowchart LR
     subgraph worker [worker profile]
         Poller[OutboxPoller]
         Reconcile[ReconciliationService]
+        Snapshots[BalanceSnapshotJob]
         Consumer[Event consumers]
     end
 
     Postgres[(PostgreSQL<br/>row-level security)]
-    Redis[(Redis)]
     RabbitMQ{{RabbitMQ}}
     Kafka{{Kafka}}
 
@@ -82,10 +83,8 @@ flowchart LR
     Client -->|POST /reconciliation/trigger| API
 
     API --> Posting -->|"ledger + outbox_event<br/>one transaction"| Postgres
-    API --> Balance
-    Balance <-->|cache-aside| Redis
-    Balance --> Postgres
-    Posting -. evict on commit .-> Redis
+    API --> Balance -->|"snapshot + entries since"| Postgres
+    Snapshots -->|checkpoint balances| Postgres
 
     API -->|publish job| RabbitMQ -->|consume| Reconcile --> Postgres
 
@@ -95,9 +94,9 @@ flowchart LR
 
 Three paths, and one process split in two.
 
-The **synchronous** path is JWT-authenticated REST → service layer → JPA → PostgreSQL, with
-Redis alongside for balance caching. The **job** path hands work that shouldn't block a caller
-to RabbitMQ, where a worker picks it up with retry and dead-letter handling. The **event** path
+The **synchronous** path is JWT-authenticated REST → service layer → JPA → PostgreSQL. The
+**job** path hands work that should not block a caller to RabbitMQ, where a worker picks it up
+with retry and dead-letter handling. The **event** path
 is new and different in kind: a posting writes its event into an `outbox_event` row in the same
 database transaction as the ledger change, and a poller moves those rows onto Kafka.
 
@@ -113,6 +112,24 @@ disagree, with no way afterwards to tell which is right. Writing the event as a 
 transaction happened" and "the event exists" one atomic fact, at the cost of at-least-once
 delivery — a crash after a successful send but before the row is marked published will
 republish it, so consumers deduplicate on `eventId`.
+
+An account balance is not stored anywhere. It is the sum of that account's entries, computed
+when asked: the newest snapshot at or before the date, plus every entry since. Snapshots keep
+that sum bounded as history grows, and are purely an optimization -- with none, the sum simply
+covers everything and returns the same answer. That is deliberate, because it means the
+snapshot job can be late, fail, or be deleted and rebuilt without any reader being wrong.
+
+The alternative, a stored running total, is what this replaced. It made every account a
+contention point -- in a real business every invoice, payment and bill lands on the same few
+accounts, so two people working at once collided on one row -- and it could silently disagree
+with the entries that were supposed to explain it. It also could only ever answer "what is the
+balance now", not "what was it on 31 March", which is the question every financial statement
+actually asks.
+
+Redis is still in the stack but currently caches nothing: the balance cache that used to live
+there fronted a single-row lookup, and once that became a bounded aggregate it stopped being
+worth an invalidation hook on every posting. It earns its place again with live updates and
+report caching.
 
 Both halves run the **same image**, told by Spring profile which half to be. `web` serves HTTP
 and records outbox rows; `worker` drains the outbox, consumes queues and runs scheduled jobs.
@@ -191,7 +208,7 @@ curl -s -X POST http://localhost:8080/transactions \
 Retrying the exact same request (same `idempotencyKey`) returns the original transaction
 instead of posting again. An unbalanced request (debits ≠ credits) gets a `400` instead.
 
-Read the balance back (served from Redis after the first read):
+Read the balance back (summed from the entries, through the latest snapshot):
 
 ```bash
 curl -s http://localhost:8080/accounts/1/balance -H "Authorization: Bearer $TOKEN"
@@ -366,9 +383,10 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   collector yet, so there is no UI to look at a trace in.
 - **Events are published, not yet consumed for anything** — the only consumer logs what it
   receives. Read models built from the stream come later.
-- **Cached running total, not full event-sourcing** — account balances are a cached running
-  total updated on each posting, rather than always derived by summing entries. A stricter
-  design would recompute balances purely from the entry log.
+- **Snapshots are not yet scheduled anywhere but the worker** — balance checkpoints are
+  written by a monthly job. Nothing depends on them for correctness (a missing snapshot only
+  costs time), but a large ledger that has never run the job will read balances by summing
+  all of history.
 - **No currency conversion yet** — entries already carry both the transaction amount and its
   value in the organization's reporting currency, with the rate frozen at posting time, but
   the only rate available is 1. Posting in a currency other than the reporting one is refused

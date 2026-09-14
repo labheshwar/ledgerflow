@@ -1,42 +1,59 @@
 package com.ledgerflow.service;
 
-import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.Entry;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.exception.AccountNotFoundException;
-import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountBalanceQueries;
+import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.repository.EntryRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+/**
+ * Reads balances.
+ *
+ * Note what is gone: the Redis cache-aside that used to sit in front of this.
+ * It was there because a balance read was a single-row lookup that postings
+ * invalidated, and caching it looked like a win. Now that a balance is
+ * derived, that argument inverts -- the read is a bounded aggregate that
+ * Postgres serves from shared buffers, and caching it would buy a fraction of
+ * a millisecond in exchange for an invalidation problem on every posting and
+ * a second place for a cross-tenant key mistake to hide. Redis stays in the
+ * stack for the work it is actually good at.
+ */
 @Service
 public class BalanceService {
 
-    private final AccountRepository accountRepository;
+    private final AccountBalanceQueries accountBalanceQueries;
     private final EntryRepository entryRepository;
 
-    public BalanceService(AccountRepository accountRepository, EntryRepository entryRepository) {
-        this.accountRepository = accountRepository;
+    public BalanceService(AccountBalanceQueries accountBalanceQueries, EntryRepository entryRepository) {
+        this.accountBalanceQueries = accountBalanceQueries;
         this.entryRepository = entryRepository;
     }
 
-    public Account getAccount(Long accountId) {
-        return accountRepository.findById(accountId)
+    public AccountWithBalance getAccount(Long accountId) {
+        return accountBalanceQueries
+                .findById(accountId)
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
     }
 
-    public List<Account> listAccounts() {
-        return accountRepository.findAllByOrderByNameAsc();
+    public AccountBalance getBalance(Long accountId) {
+        AccountWithBalance account = getAccount(accountId);
+        return new AccountBalance(account.id(), account.balance(), account.currency());
     }
 
     /**
-     * The running balance is folded here by replaying every entry in
-     * accounting order -- the same DEBIT-adds/CREDIT-subtracts rule applied
-     * at posting time. Returned newest-first, matching how a statement reads.
+     * The running balance is folded here by replaying the account in
+     * accounting order -- the same DEBIT-adds/CREDIT-subtracts rule the
+     * derived balance query applies in SQL. Returned newest-first, matching
+     * how a statement reads.
+     *
+     * The last row's running balance is, by construction, the same number
+     * {@link #getBalance} returns: one is the fold, the other is the sum.
      */
     public List<LedgerEntry> getLedgerEntries(Long accountId) {
         getAccount(accountId); // 404s if the account doesn't exist
@@ -59,18 +76,5 @@ public class BalanceService {
         }
         Collections.reverse(newestFirst);
         return newestFirst;
-    }
-
-    /**
-     * Cache-aside: reads vastly outnumber postings, so this is the hot
-     * path. Evicted by BalanceCacheEvictor the moment a posting commits
-     * against this account -- never served stale past that point.
-     */
-    @Cacheable(
-            value = BalanceCacheEvictor.CACHE_NAME,
-            key = "T(com.ledgerflow.service.BalanceCacheEvictor).key(T(com.ledgerflow.tenancy.TenantContext).require(), #accountId)")
-    public AccountBalance getCachedBalance(Long accountId) {
-        Account account = getAccount(accountId);
-        return new AccountBalance(account.getId(), account.getBalance(), account.getCurrency());
     }
 }

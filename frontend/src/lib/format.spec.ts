@@ -12,23 +12,56 @@ import {
 
 describe('formatMoney', () => {
   it('always shows two decimal places', () => {
-    expect(formatMoney(5)).toBe('Rs 5.00')
-    expect(formatMoney(5.1)).toBe('Rs 5.10')
+    expect(formatMoney(5)).toBe('$5.00')
+    expect(formatMoney(5.1)).toBe('$5.10')
   })
 
   it('groups thousands', () => {
-    expect(formatMoney(1234567.891)).toBe('Rs 1,234,567.89')
+    expect(formatMoney(1234567.891)).toBe('$1,234,567.89')
   })
 
   it('keeps the sign on negative balances', () => {
-    expect(formatMoney(-25)).toBe('Rs -25.00')
+    expect(formatMoney(-25)).toBe('-$25.00')
+  })
+
+  it('labels the amount with the currency it is actually in', () => {
+    // The symbol used to be hardcoded, so every account rendered as though
+    // it were held in one currency no matter what it was denominated in.
+    expect(formatMoney(100, 'EUR')).toBe('€100.00')
+    expect(formatMoney(100, 'GBP')).toBe('£100.00')
+  })
+
+  it('drops the decimals for a currency that has no minor unit', () => {
+    // Same rule the Money type applies on the server: there is no such thing
+    // as a tenth of a yen, so printing one would be inventing precision.
+    expect(formatMoney(1234, 'JPY')).toBe('¥1,234')
+  })
+
+  it('prints the code itself for a currency with no known symbol', () => {
+    // Intl accepts any well-formed code and falls back to printing it, which
+    // is exactly the desired behaviour.
+    //
+    // Note the normalization: Intl separates a bare code from the figure with
+    // a non-breaking space, which looks identical to a normal one in a failure
+    // message and makes for a genuinely baffling assertion error.
+    expect(formatMoney(12.5, 'ZZZ').replace(/\u00a0/g, ' ')).toBe('ZZZ 12.50')
+  })
+
+  it('still shows the figure when the currency code is malformed', () => {
+    // A malformed code makes Intl throw. Better a number with the bad code
+    // beside it than a blank cell where a balance should be.
+    expect(formatMoney(12.5, 'NOT-A-CURRENCY')).toBe('12.50 NOT-A-CURRENCY')
   })
 })
 
 describe('signedAmount', () => {
   it('marks debits positive and credits negative, matching the running-balance fold', () => {
-    expect(signedAmount('DEBIT', 100)).toBe('+Rs 100.00')
-    expect(signedAmount('CREDIT', 100)).toBe('-Rs 100.00')
+    expect(signedAmount('DEBIT', 100)).toBe('+$100.00')
+    expect(signedAmount('CREDIT', 100)).toBe('-$100.00')
+  })
+
+  it('carries the currency through', () => {
+    expect(signedAmount('DEBIT', 100, 'EUR')).toBe('+€100.00')
   })
 })
 

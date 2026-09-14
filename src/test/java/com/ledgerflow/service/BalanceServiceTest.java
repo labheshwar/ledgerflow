@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
-import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.Entry;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.exception.AccountNotFoundException;
-import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountBalanceQueries;
+import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.repository.EntryRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
@@ -27,7 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class BalanceServiceTest {
 
     @Mock
-    private AccountRepository accountRepository;
+    private AccountBalanceQueries accountBalanceQueries;
 
     @Mock
     private EntryRepository entryRepository;
@@ -36,13 +36,12 @@ class BalanceServiceTest {
 
     @BeforeEach
     void setUp() {
-        balanceService = new BalanceService(accountRepository, entryRepository);
+        balanceService = new BalanceService(accountBalanceQueries, entryRepository);
     }
 
     @Test
     void foldsEntriesIntoRunningBalanceNewestFirst() {
-        Account account = account(1L);
-        when(accountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(accountBalanceQueries.findById(1L)).thenReturn(Optional.of(account(1L)));
         when(entryRepository.findForLedger(1L))
                 .thenReturn(List.of(
                         entry(10L, 100L, EntryType.DEBIT, new BigDecimal("100.00"), LocalDate.of(2026, 3, 1)),
@@ -60,8 +59,7 @@ class BalanceServiceTest {
 
     @Test
     void returnsEmptyListWhenAccountHasNoEntries() {
-        Account account = account(1L);
-        when(accountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(accountBalanceQueries.findById(1L)).thenReturn(Optional.of(account(1L)));
         when(entryRepository.findForLedger(1L)).thenReturn(List.of());
 
         assertThat(balanceService.getLedgerEntries(1L)).isEmpty();
@@ -69,16 +67,14 @@ class BalanceServiceTest {
 
     @Test
     void throwsWhenAccountDoesNotExist() {
-        when(accountRepository.findById(99L)).thenReturn(Optional.empty());
+        when(accountBalanceQueries.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> balanceService.getLedgerEntries(99L))
                 .isInstanceOf(AccountNotFoundException.class);
     }
 
-    private static Account account(Long id) {
-        Account account = new Account();
-        setField(account, "id", id);
-        return account;
+    private static AccountWithBalance account(Long id) {
+        return new AccountWithBalance(id, "Account " + id, null, "USD", BigDecimal.ZERO, BigDecimal.ZERO, null, null);
     }
 
     private static Entry entry(Long id, Long transactionId, EntryType type, BigDecimal amount, LocalDate txnDate) {

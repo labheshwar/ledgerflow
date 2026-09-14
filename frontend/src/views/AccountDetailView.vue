@@ -8,7 +8,6 @@ import {
   directionPillClass,
   formatDate,
   formatMoney,
-  formatRelativeTime,
   signedAmount,
 } from '../lib/format'
 import type { Account, LedgerEntry } from '../lib/types'
@@ -56,7 +55,7 @@ const pagedEntries = computed(() => entries.value.slice((page.value - 1) * perPa
       <div class="summary">
         <div class="card">
           <div class="label">Current balance</div>
-          <div class="balance mono">{{ formatMoney(account.balance) }}</div>
+          <div class="balance mono">{{ formatMoney(account.balance, account.currency) }}</div>
           <div class="hint">Cached in Redis · invalidated on next posting</div>
         </div>
         <div class="card">
@@ -90,7 +89,7 @@ const pagedEntries = computed(() => entries.value.slice((page.value - 1) * perPa
             <th>Direction</th>
             <th style="text-align: right">Amount</th>
             <th style="text-align: right">Running balance</th>
-            <th>Time</th>
+            <th>Date</th>
           </tr>
           <tr v-for="e in pagedEntries" :key="e.id">
             <td class="mono">
@@ -99,9 +98,9 @@ const pagedEntries = computed(() => entries.value.slice((page.value - 1) * perPa
             <td>
               <span :class="directionPillClass(e.direction)">{{ e.direction }}</span>
             </td>
-            <td class="num">{{ signedAmount(e.direction, e.amount) }}</td>
-            <td class="num">{{ formatMoney(e.runningBalance) }}</td>
-            <td class="mono" style="color: var(--ink-soft)">{{ formatRelativeTime(e.createdAt) }}</td>
+            <td class="num">{{ signedAmount(e.direction, e.amount, account?.currency) }}</td>
+            <td class="num">{{ formatMoney(e.runningBalance, account?.currency) }}</td>
+            <td class="mono" style="color: var(--ink-soft)">{{ formatDate(e.txnDate) }}</td>
           </tr>
         </table>
         <div v-if="entries.length === 0" class="empty">No ledger entries yet.</div>

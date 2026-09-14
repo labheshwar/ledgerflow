@@ -85,7 +85,7 @@ const typeFilter = computed({
           <template #cell:type="{ row }">
             <span :class="accountTypePillClass(row.type)">{{ row.type }}</span>
           </template>
-          <template #cell:balance="{ row }">{{ formatMoney(row.balance) }}</template>
+          <template #cell:balance="{ row }">{{ formatMoney(row.balance, row.currency) }}</template>
           <template #cell:updatedAt="{ row }">
             <span style="color: var(--ink-soft)">{{ formatRelativeTime(row.updatedAt) }}</span>
           </template>

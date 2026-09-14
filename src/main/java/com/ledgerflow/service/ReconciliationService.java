@@ -1,11 +1,12 @@
 package com.ledgerflow.service;
 
-import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.ReconciliationBatch;
 import com.ledgerflow.domain.ReconciliationResult;
 import com.ledgerflow.domain.ReconciliationResultStatus;
 import com.ledgerflow.domain.ReconciliationStatus;
+import com.ledgerflow.repository.AccountBalanceQueries;
 import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.ReconciliationResultRepository;
 import java.math.BigDecimal;
@@ -20,16 +21,19 @@ public class ReconciliationService {
     private final ReconciliationBatchRepository batchRepository;
     private final ReconciliationResultRepository resultRepository;
     private final AccountRepository accountRepository;
+    private final AccountBalanceQueries accountBalanceQueries;
     private final SimulatedExternalStatementFeed externalStatementFeed;
 
     public ReconciliationService(
             ReconciliationBatchRepository batchRepository,
             ReconciliationResultRepository resultRepository,
             AccountRepository accountRepository,
+            AccountBalanceQueries accountBalanceQueries,
             SimulatedExternalStatementFeed externalStatementFeed) {
         this.batchRepository = batchRepository;
         this.resultRepository = resultRepository;
         this.accountRepository = accountRepository;
+        this.accountBalanceQueries = accountBalanceQueries;
         this.externalStatementFeed = externalStatementFeed;
     }
 
@@ -48,14 +52,16 @@ public class ReconciliationService {
         batch.setStatus(ReconciliationStatus.IN_PROGRESS);
         batchRepository.save(batch);
 
-        for (Account account : accountRepository.findAll()) {
-            BigDecimal ledgerBalance = account.getBalance();
-            BigDecimal externalBalance = externalStatementFeed.fetchExternalBalance(account);
+        // One query returns every account with its derived balance. Asking
+        // per account inside the loop would be a balance query per row.
+        for (AccountWithBalance account : accountBalanceQueries.findAllOrderedByName()) {
+            BigDecimal ledgerBalance = account.balance();
+            BigDecimal externalBalance = externalStatementFeed.fetchExternalBalance(ledgerBalance);
 
             ReconciliationResult result = new ReconciliationResult();
             result.setOrgId(batch.getOrgId());
             result.setBatch(batch);
-            result.setAccount(account);
+            result.setAccount(accountRepository.getReferenceById(account.id()));
             result.setLedgerBalance(ledgerBalance);
             result.setExternalBalance(externalBalance);
             result.setStatus(ledgerBalance.compareTo(externalBalance) == 0

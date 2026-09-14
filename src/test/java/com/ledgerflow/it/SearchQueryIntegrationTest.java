@@ -5,11 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.domain.ReconciliationStatus;
+import com.ledgerflow.repository.AccountBalanceQueries;
 import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.repository.AuditLogRepository;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.TransactionRepository;
-import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,16 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private AccountRepository accountRepository;
+
+    /**
+     * The account list is served by this, not by a Spring Data method: the
+     * balance it sorts and filters alongside is a lateral join that JPQL
+     * cannot express. Testing the JPQL query instead would leave the query
+     * users actually hit untested -- which is exactly how the lower(bytea)
+     * failure reached production in the first place.
+     */
+    @Autowired
+    private AccountBalanceQueries accountBalanceQueries;
 
     @Autowired
     private TransactionRepository transactionRepository;
@@ -48,27 +59,26 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
         account.setCurrency("USD");
         account.setOrgId(DEMO_ORG_ID);
         account.setType(AccountType.ASSET);
-        account.setBalance(BigDecimal.ZERO);
         accountRepository.save(account);
 
         // No filters at all -- the case that fails if a null reaches LOWER().
-        assertThat(accountRepository.search(null, null, FIRST_PAGE).getTotalElements()).isPositive();
+        assertThat(accountBalanceQueries.search(null, null, FIRST_PAGE).getTotalElements()).isPositive();
 
         // Type only, search term null.
-        assertThat(accountRepository.search(null, AccountType.ASSET, FIRST_PAGE).getContent())
-                .allMatch(a -> a.getType() == AccountType.ASSET);
+        assertThat(accountBalanceQueries.search(null, AccountType.ASSET, FIRST_PAGE).getContent())
+                .allMatch(a -> a.type() == AccountType.ASSET);
 
         // Term only.
-        assertThat(accountRepository.search(unique, null, FIRST_PAGE).getContent())
-                .extracting(Account::getName)
+        assertThat(accountBalanceQueries.search(unique, null, FIRST_PAGE).getContent())
+                .extracting(AccountWithBalance::name)
                 .containsExactly(unique);
 
         // Both together.
-        assertThat(accountRepository.search(unique, AccountType.ASSET, FIRST_PAGE).getTotalElements())
+        assertThat(accountBalanceQueries.search(unique, AccountType.ASSET, FIRST_PAGE).getTotalElements())
                 .isEqualTo(1);
 
         // A term matching nothing still has to execute cleanly.
-        assertThat(accountRepository.search("no-such-account-" + UUID.randomUUID(), null, FIRST_PAGE))
+        assertThat(accountBalanceQueries.search("no-such-account-" + UUID.randomUUID(), null, FIRST_PAGE))
                 .isEmpty();
     }
 
@@ -80,20 +90,19 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
         account.setCurrency("USD");
         account.setOrgId(DEMO_ORG_ID);
         account.setType(AccountType.REVENUE);
-        account.setBalance(BigDecimal.ZERO);
         accountRepository.save(account);
 
-        assertThat(accountRepository.search("it mixedcase", null, FIRST_PAGE).getContent())
-                .extracting(Account::getName)
+        assertThat(accountBalanceQueries.search("it mixedcase", null, FIRST_PAGE).getContent())
+                .extracting(AccountWithBalance::name)
                 .contains(unique);
     }
 
     @Test
     void blankAndWhitespaceTermsBehaveLikeNoFilter() {
-        long all = accountRepository.search(null, null, FIRST_PAGE).getTotalElements();
+        long all = accountBalanceQueries.search(null, null, FIRST_PAGE).getTotalElements();
 
-        assertThat(accountRepository.search("", null, FIRST_PAGE).getTotalElements()).isEqualTo(all);
-        assertThat(accountRepository.search("   ", null, FIRST_PAGE).getTotalElements()).isEqualTo(all);
+        assertThat(accountBalanceQueries.search("", null, FIRST_PAGE).getTotalElements()).isEqualTo(all);
+        assertThat(accountBalanceQueries.search("   ", null, FIRST_PAGE).getTotalElements()).isEqualTo(all);
     }
 
     @Test

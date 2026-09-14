@@ -9,6 +9,7 @@ import com.ledgerflow.domain.AuditLog;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.AuditLogRepository;
 import com.ledgerflow.money.Money;
+import com.ledgerflow.service.BalanceService;
 import com.ledgerflow.service.JournalBuilder;
 import com.ledgerflow.service.PostingCommand;
 import com.ledgerflow.service.PostingService;
@@ -32,6 +33,9 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private AccountRepository accountRepository;
+
+    @Autowired
+    private BalanceService balanceService;
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -59,8 +63,7 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
 
         postingService.post(command);
 
-        Account reloadedDebit = accountRepository.findById(debitAccount.getId()).orElseThrow();
-        assertThat(reloadedDebit.getBalance()).isEqualByComparingTo("40.00");
+        assertThat(balanceService.getBalance(debitAccount.getId()).balance()).isEqualByComparingTo("40.00");
 
         AuditLog transactionAudit = auditLogRepository.findAll().stream()
                 .filter(a -> "TRANSACTION".equals(a.getEntityType()))

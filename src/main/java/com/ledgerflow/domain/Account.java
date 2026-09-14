@@ -35,9 +35,12 @@ public class Account {
     @Column(nullable = false, length = 10)
     private AccountType type;
 
-    @Column(nullable = false)
-    private BigDecimal balance;
-
+    /**
+     * Still here, but no longer guarding a balance. Balances are derived from
+     * the entries now, so a posting does not write to this row at all -- this
+     * guards concurrent edits to the account itself, such as two people
+     * renaming or re-typing it at once.
+     */
     @Version
     @Column(nullable = false)
     private Long version;
@@ -53,9 +56,6 @@ public class Account {
         OffsetDateTime now = OffsetDateTime.now();
         createdAt = now;
         updatedAt = now;
-        if (balance == null) {
-            balance = BigDecimal.ZERO;
-        }
     }
 
     @PreUpdate
@@ -97,14 +97,6 @@ public class Account {
 
     public void setType(AccountType type) {
         this.type = type;
-    }
-
-    public BigDecimal getBalance() {
-        return balance;
-    }
-
-    public void setBalance(BigDecimal balance) {
-        this.balance = balance;
     }
 
     public Long getVersion() {

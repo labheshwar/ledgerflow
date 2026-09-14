@@ -19,7 +19,10 @@ export interface Account {
   name: string
   type: AccountType
   currency: string
+  /** Derived from the entries on read, not a stored column. */
   balance: number
+  /** The same amount in the organization's reporting currency. */
+  baseBalance: number
   createdAt: string
   updatedAt: string
 }
@@ -30,6 +33,8 @@ export interface LedgerEntry {
   direction: EntryDirection
   amount: number
   runningBalance: number
+  /** The accounting date the running balance is folded in order of. */
+  txnDate: string
   createdAt: string
 }
 

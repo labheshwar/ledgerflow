@@ -6,7 +6,6 @@ import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.tenancy.TenantContext;
-import java.math.BigDecimal;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,8 +52,8 @@ class RlsIntegrationTest extends AbstractIntegrationTest {
 
         otherOrgAccountId = owner.queryForObject(
                 """
-                INSERT INTO accounts (org_id, name, currency, type, balance, version, created_at, updated_at)
-                VALUES (?, ?, 'USD', 'ASSET', 0, 0, now(), now())
+                INSERT INTO accounts (org_id, name, currency, type, version, created_at, updated_at)
+                VALUES (?, ?, 'USD', 'ASSET', 0, now(), now())
                 RETURNING id
                 """,
                 Long.class,
@@ -69,7 +68,6 @@ class RlsIntegrationTest extends AbstractIntegrationTest {
         mine.setName("RLS Demo Account " + UUID.randomUUID());
         mine.setCurrency("USD");
         mine.setType(AccountType.ASSET);
-        mine.setBalance(BigDecimal.ZERO);
         accountRepository.save(mine);
 
         assertThat(accountRepository.findAll())

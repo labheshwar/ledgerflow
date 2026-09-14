@@ -1,7 +1,28 @@
 import type { EntryDirection, ReconciliationResultStatus, ReconciliationStatus } from './types'
 
-export function formatMoney(amount: number): string {
-  return `Rs ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+/**
+ * Formats an amount in the currency it is actually denominated in.
+ *
+ * The symbol used to be hardcoded, so a dollar account and a euro account
+ * rendered identically and both were labelled wrong. In a ledger that is not
+ * a cosmetic defect: the figure on screen claims to be an amount of a
+ * currency, and it was claiming the wrong one.
+ *
+ * Intl derives the symbol, its placement and the number of decimal places
+ * from the currency code — the same rule the Money type applies on the
+ * server, where JPY has no decimal places because it has no minor unit.
+ */
+export function formatMoney(amount: number, currency = 'USD'): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
+  } catch {
+    // An unrecognised code must not blank out the figure entirely: show the
+    // number with the code beside it.
+    return `${amount.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${currency}`
+  }
 }
 
 export function formatRelativeTime(iso: string): string {
@@ -30,8 +51,8 @@ export function directionPillClass(direction: EntryDirection): string {
   return direction === 'DEBIT' ? 'pill pill-green' : 'pill pill-red'
 }
 
-export function signedAmount(direction: EntryDirection, amount: number): string {
-  return (direction === 'DEBIT' ? '+' : '-') + formatMoney(amount)
+export function signedAmount(direction: EntryDirection, amount: number, currency = 'USD'): string {
+  return (direction === 'DEBIT' ? '+' : '-') + formatMoney(amount, currency)
 }
 
 export function formatDuration(startIso: string, endIso: string | null): string {

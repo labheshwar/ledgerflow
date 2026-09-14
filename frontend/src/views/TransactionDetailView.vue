@@ -64,7 +64,7 @@ const totalCredit = computed(
               <div>
                 <span :class="directionPillClass(e.direction)">{{ e.direction }}</span>
               </div>
-              <div class="amt">{{ formatMoney(e.amount) }}</div>
+              <div class="amt">{{ formatMoney(e.amount, e.currency) }}</div>
             </div>
             <div class="slip-total">
               <span>Total debits / credits</span>

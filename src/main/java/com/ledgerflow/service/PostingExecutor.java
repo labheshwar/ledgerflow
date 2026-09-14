@@ -36,7 +36,6 @@ class PostingExecutor {
     private final EntryRepository entryRepository;
     private final OrganizationService organizationService;
     private final AuditService auditService;
-    private final BalanceCacheEvictor balanceCacheEvictor;
     private final OutboxRecorder outboxRecorder;
 
     PostingExecutor(
@@ -45,14 +44,12 @@ class PostingExecutor {
             EntryRepository entryRepository,
             OrganizationService organizationService,
             AuditService auditService,
-            BalanceCacheEvictor balanceCacheEvictor,
             OutboxRecorder outboxRecorder) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.entryRepository = entryRepository;
         this.organizationService = organizationService;
         this.auditService = auditService;
-        this.balanceCacheEvictor = balanceCacheEvictor;
         this.outboxRecorder = outboxRecorder;
     }
 
@@ -79,12 +76,12 @@ class PostingExecutor {
             BigDecimal fxRate = rateToBase(amount.currency(), baseCurrency);
             Money baseAmount = amount.convertedTo(baseCurrency, fxRate);
 
-            BigDecimal balanceBefore = account.getBalance();
-            BigDecimal delta = line.entryType() == EntryType.DEBIT
-                    ? amount.amount()
-                    : amount.amount().negate();
-            account.setBalance(balanceBefore.add(delta));
-
+            // Nothing is written to the account row. That is the change:
+            // posting used to read-modify-write a balance column guarded by
+            // an optimistic lock, which made every account a contention point
+            // -- and in a real business every invoice, payment and bill lands
+            // on the same few accounts. Appending an entry is insert-only, so
+            // two people invoicing at once no longer collide at all.
             Entry entry = new Entry();
             entry.setOrgId(orgId);
             entry.setTransaction(transaction);
@@ -96,10 +93,19 @@ class PostingExecutor {
             entry.setFxRate(fxRate);
             entryRepository.save(entry);
 
+            // Records the entry, not a before/after balance. There is no
+            // stored balance to snapshot any more, and computing one per
+            // line would mean a query per line purely to write it down --
+            // while the entry itself is already the complete and replayable
+            // record of what changed.
             auditService.record(
-                    "ACCOUNT", account.getId(), "BALANCE_UPDATE",
-                    Map.of("balance", balanceBefore),
-                    Map.of("balance", account.getBalance()));
+                    "ACCOUNT", account.getId(), "ENTRY_POSTED",
+                    null,
+                    Map.of(
+                            "transactionId", transaction.getId(),
+                            "entryType", line.entryType().name(),
+                            "amount", amount.amount(),
+                            "currency", amount.currency()));
 
             eventLines.add(new TransactionPostedEvent.Line(
                     account.getId(),
@@ -136,8 +142,6 @@ class PostingExecutor {
                         command.currency(),
                         baseCurrency,
                         eventLines));
-
-        accountsById.keySet().forEach(accountId -> balanceCacheEvictor.evictAfterCommit(orgId, accountId));
 
         return transaction;
     }

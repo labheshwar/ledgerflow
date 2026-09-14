@@ -3,6 +3,7 @@ package com.ledgerflow.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,7 +13,9 @@ import com.ledgerflow.domain.ReconciliationBatch;
 import com.ledgerflow.domain.ReconciliationResult;
 import com.ledgerflow.domain.ReconciliationResultStatus;
 import com.ledgerflow.domain.ReconciliationStatus;
+import com.ledgerflow.repository.AccountBalanceQueries;
 import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.ReconciliationResultRepository;
 import java.lang.reflect.Field;
@@ -41,6 +44,9 @@ class ReconciliationServiceTest {
     private AccountRepository accountRepository;
 
     @Mock
+    private AccountBalanceQueries accountBalanceQueries;
+
+    @Mock
     private SimulatedExternalStatementFeed externalStatementFeed;
 
     private ReconciliationService reconciliationService;
@@ -48,19 +54,31 @@ class ReconciliationServiceTest {
     @BeforeEach
     void setUp() {
         reconciliationService =
-                new ReconciliationService(batchRepository, resultRepository, accountRepository, externalStatementFeed);
+                new ReconciliationService(
+                        batchRepository,
+                        resultRepository,
+                        accountRepository,
+                        accountBalanceQueries,
+                        externalStatementFeed);
     }
 
     @Test
     void recordsMatchedAndMismatchedResultsAndCompletesTheBatch() {
         ReconciliationBatch batch = accountBatch(1L);
-        Account matching = account(1L, new BigDecimal("100.00"));
-        Account drifting = account(2L, new BigDecimal("50.00"));
+        AccountWithBalance matching = account(1L, new BigDecimal("100.00"));
+        AccountWithBalance drifting = account(2L, new BigDecimal("50.00"));
 
         when(batchRepository.findById(1L)).thenReturn(Optional.of(batch));
-        when(accountRepository.findAll()).thenReturn(List.of(matching, drifting));
-        when(externalStatementFeed.fetchExternalBalance(matching)).thenReturn(new BigDecimal("100.00"));
-        when(externalStatementFeed.fetchExternalBalance(drifting)).thenReturn(new BigDecimal("45.00"));
+        when(accountBalanceQueries.findAllOrderedByName()).thenReturn(List.of(matching, drifting));
+        when(externalStatementFeed.fetchExternalBalance(new BigDecimal("100.00")))
+                .thenReturn(new BigDecimal("100.00"));
+        when(externalStatementFeed.fetchExternalBalance(new BigDecimal("50.00")))
+                .thenReturn(new BigDecimal("45.00"));
+        when(accountRepository.getReferenceById(anyLong())).thenAnswer(call -> {
+            Account stub = new Account();
+            setField(stub, "id", call.getArgument(0));
+            return stub;
+        });
 
         reconciliationService.reconcile(1L);
 
@@ -90,7 +108,7 @@ class ReconciliationServiceTest {
     void setsBatchInProgressBeforeProcessingAccounts() {
         ReconciliationBatch batch = accountBatch(1L);
         when(batchRepository.findById(1L)).thenReturn(Optional.of(batch));
-        when(accountRepository.findAll()).thenReturn(List.of());
+        when(accountBalanceQueries.findAllOrderedByName()).thenReturn(List.of());
 
         // ArgumentCaptor captures the object reference, not a snapshot -- since
         // `batch` is the same mutable instance saved twice, both captures would
@@ -119,11 +137,8 @@ class ReconciliationServiceTest {
         verify(resultRepository, times(0)).save(any());
     }
 
-    private static Account account(Long id, BigDecimal balance) {
-        Account account = new Account();
-        setField(account, "id", id);
-        account.setBalance(balance);
-        return account;
+    private static AccountWithBalance account(Long id, BigDecimal balance) {
+        return new AccountWithBalance(id, "Account " + id, null, "USD", balance, balance, null, null);
     }
 
     private static ReconciliationBatch accountBatch(Long id) {

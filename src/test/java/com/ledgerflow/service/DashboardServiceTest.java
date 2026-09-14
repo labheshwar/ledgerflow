@@ -4,14 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.ReconciliationBatch;
-import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountBalanceQueries;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.TransactionRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class DashboardServiceTest {
 
     @Mock
-    private AccountRepository accountRepository;
+    private AccountBalanceQueries accountBalanceQueries;
 
     @Mock
     private TransactionRepository transactionRepository;
@@ -35,16 +33,13 @@ class DashboardServiceTest {
 
     @BeforeEach
     void setUp() {
-        dashboardService = new DashboardService(accountRepository, transactionRepository, batchRepository);
+        dashboardService = new DashboardService(accountBalanceQueries, transactionRepository, batchRepository);
     }
 
     @Test
     void sumsAccountBalancesAndReportsLatestBatch() {
-        when(accountRepository.findAll())
-                .thenReturn(List.of(
-                        account(new BigDecimal("100.00")),
-                        account(new BigDecimal("-25.50")),
-                        account(new BigDecimal("10.00"))));
+        when(accountBalanceQueries.count()).thenReturn(3L);
+        when(accountBalanceQueries.totalBaseBalance()).thenReturn(new BigDecimal("84.50"));
         when(transactionRepository.countByCreatedAtAfter(any())).thenReturn(4L);
         ReconciliationBatch latest = batch(7L);
         when(batchRepository.findFirstByOrderByTriggeredAtDesc()).thenReturn(Optional.of(latest));
@@ -59,7 +54,8 @@ class DashboardServiceTest {
 
     @Test
     void reportsZeroTotalsAndNoBatchWhenNothingExistsYet() {
-        when(accountRepository.findAll()).thenReturn(List.of());
+        when(accountBalanceQueries.count()).thenReturn(0L);
+        when(accountBalanceQueries.totalBaseBalance()).thenReturn(BigDecimal.ZERO);
         when(transactionRepository.countByCreatedAtAfter(any())).thenReturn(0L);
         when(batchRepository.findFirstByOrderByTriggeredAtDesc()).thenReturn(Optional.empty());
 
@@ -69,12 +65,6 @@ class DashboardServiceTest {
         assertThat(summary.totalLedgerBalance()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(summary.postingsToday()).isEqualTo(0);
         assertThat(summary.latestReconciliation()).isNull();
-    }
-
-    private static Account account(BigDecimal balance) {
-        Account account = new Account();
-        account.setBalance(balance);
-        return account;
     }
 
     private static ReconciliationBatch batch(Long id) {

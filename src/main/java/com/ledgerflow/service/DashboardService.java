@@ -1,7 +1,6 @@
 package com.ledgerflow.service;
 
-import com.ledgerflow.domain.Account;
-import com.ledgerflow.repository.AccountRepository;
+import com.ledgerflow.repository.AccountBalanceQueries;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.TransactionRepository;
 import java.math.BigDecimal;
@@ -13,30 +12,32 @@ import org.springframework.stereotype.Service;
 @Service
 public class DashboardService {
 
-    private final AccountRepository accountRepository;
+    private final AccountBalanceQueries accountBalanceQueries;
     private final TransactionRepository transactionRepository;
     private final ReconciliationBatchRepository batchRepository;
 
     public DashboardService(
-            AccountRepository accountRepository,
+            AccountBalanceQueries accountBalanceQueries,
             TransactionRepository transactionRepository,
             ReconciliationBatchRepository batchRepository) {
-        this.accountRepository = accountRepository;
+        this.accountBalanceQueries = accountBalanceQueries;
         this.transactionRepository = transactionRepository;
         this.batchRepository = batchRepository;
     }
 
     public DashboardSummary getSummary() {
-        var accounts = accountRepository.findAll();
-        BigDecimal totalLedgerBalance = accounts.stream()
-                .map(Account::getBalance)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Summed in the database, and in the reporting currency. Adding up
+        // account-currency balances would put dollars and euros in the same
+        // total; folding them in Java would mean loading every account to
+        // add up numbers Postgres can add up itself.
+        BigDecimal totalLedgerBalance = accountBalanceQueries.totalBaseBalance();
+        long accountCount = accountBalanceQueries.count();
 
         OffsetDateTime startOfToday = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.DAYS);
         long postingsToday = transactionRepository.countByCreatedAtAfter(startOfToday);
 
         return new DashboardSummary(
-                accounts.size(),
+                accountCount,
                 totalLedgerBalance,
                 postingsToday,
                 batchRepository.findFirstByOrderByTriggeredAtDesc().orElse(null));

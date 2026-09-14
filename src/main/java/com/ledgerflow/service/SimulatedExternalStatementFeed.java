@@ -1,6 +1,5 @@
 package com.ledgerflow.service;
 
-import com.ledgerflow.domain.Account;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import org.springframework.stereotype.Component;
@@ -20,12 +19,16 @@ public class SimulatedExternalStatementFeed {
 
     private final SecureRandom random = new SecureRandom();
 
-    public BigDecimal fetchExternalBalance(Account account) {
+    /**
+     * Takes the ledger balance rather than the account, because a balance is
+     * no longer something an account row carries around with it.
+     */
+    public BigDecimal fetchExternalBalance(BigDecimal ledgerBalance) {
         if (random.nextInt(MISMATCH_ODDS) != 0) {
-            return account.getBalance();
+            return ledgerBalance;
         }
         int driftCents = random.nextInt(2 * MAX_DRIFT_CENTS + 1) - MAX_DRIFT_CENTS;
         BigDecimal drift = BigDecimal.valueOf(driftCents, 2);
-        return account.getBalance().add(drift);
+        return ledgerBalance.add(drift);
     }
 }
