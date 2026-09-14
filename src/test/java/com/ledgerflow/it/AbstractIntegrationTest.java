@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -14,7 +15,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 
 /**
- * Real Postgres, Redis, and RabbitMQ, started once and shared across every
+ * Real Postgres, Redis, RabbitMQ and Kafka, started once and shared across every
  * subclass -- deliberately NOT using @Testcontainers/@Container, whose
  * per-class lifecycle hooks were observed recreating fresh containers (new
  * random ports) for each test class even with static fields declared here,
@@ -34,16 +35,24 @@ import org.testcontainers.containers.RabbitMQContainer;
  * so running the suite as one would mean the isolation policies were never
  * actually exercised by any of these tests.
  *
+ * Both profiles are active here. A test run exercises the web side and the
+ * worker side of the same application, including the outbox poller and the
+ * Rabbit listeners -- the split is a deployment concern, and a suite that
+ * only ever loaded half of it would not notice a bean that fails to wire in
+ * the other. WebProfileIntegrationTest asserts the split itself.
+ *
  * Tests must not assume specific IDs/state from another test class ran
  * first -- create whatever accounts/data a test needs itself.
  */
 @SpringBootTest
+@ActiveProfiles({"web", "worker"})
 public abstract class AbstractIntegrationTest {
 
     /** Seeded by V9; the org every pre-existing row was migrated into. */
     protected static final Long DEMO_ORG_ID = 1L;
 
     private static final String APP_PASSWORD = "test-app-password";
+    private static final String ADMIN_PASSWORD = "test-admin-password";
 
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("ledgerflow")
@@ -65,10 +74,14 @@ public abstract class AbstractIntegrationTest {
             .withExposedPorts(6379)
             .withStartupTimeout(Duration.ofMinutes(2));
 
+    /** Single-node KRaft, configured exactly as the compose stack is. */
+    static final KRaftKafkaContainer KAFKA = new KRaftKafkaContainer("apache/kafka:3.9.0");
+
     static {
         POSTGRES.start();
         RABBITMQ.start();
         REDIS.start();
+        KAFKA.start();
     }
 
     @DynamicPropertySource
@@ -85,6 +98,12 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.flyway.user", POSTGRES::getUsername);
         registry.add("spring.flyway.password", POSTGRES::getPassword);
         registry.add("spring.flyway.placeholders.app_password", () -> APP_PASSWORD);
+        registry.add("spring.flyway.placeholders.admin_password", () -> ADMIN_PASSWORD);
+
+        // The outbox poller's privileged identity, created by V11.
+        registry.add("ledgerflow.outbox.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("ledgerflow.outbox.datasource.username", () -> "ledgerflow_admin");
+        registry.add("ledgerflow.outbox.datasource.password", () -> ADMIN_PASSWORD);
 
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
@@ -93,6 +112,9 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
         registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
         registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
+
+        registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
+        registry.add("spring.kafka.consumer.group-id", () -> "ledgerflow-test");
     }
 
     /**

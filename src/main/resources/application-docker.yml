@@ -23,6 +23,7 @@ spring:
     password: ${POSTGRES_PASSWORD:change-me}
     placeholders:
       app_password: ${POSTGRES_APP_PASSWORD:app-change-me}
+      admin_password: ${POSTGRES_ADMIN_PASSWORD:admin-change-me}
 
   data:
     redis:
@@ -34,3 +35,17 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_DEFAULT_USER:ledgerflow}
     password: ${RABBITMQ_DEFAULT_PASS:change-me}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:ledgerflow-worker}
+
+# The poller's own connection, as the BYPASSRLS role created in V11. Only the
+# worker profile builds this pool -- see OutboxConfig.
+ledgerflow:
+  outbox:
+    datasource:
+      url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ledgerflow}
+      username: ${POSTGRES_ADMIN_USER:ledgerflow_admin}
+      password: ${POSTGRES_ADMIN_PASSWORD:admin-change-me}

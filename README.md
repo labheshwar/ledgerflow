@@ -38,45 +38,87 @@ a reconciliation process against an external source of truth, and a permanent au
 - **Append-only audit trail** — every posting and reconciliation result appends a row to an
   audit log with before/after snapshots. Nothing is ever overwritten; the database itself
   rejects `UPDATE`/`DELETE` on that table.
+- **Transactional outbox onto Kafka** — a posting and the event announcing it are written in
+  one database transaction, and a separate poller moves events onto Kafka. Nothing can publish
+  an event for a transaction that rolled back, or commit a transaction whose event was lost.
+  The trace id of the request that caused the posting travels with the event.
+- **Web and worker are the same image, different profiles** — the HTTP tier consumes no
+  queues, drains no outbox and runs no scheduled jobs, so the two can be scaled on completely
+  different signals.
 
 ## Architecture
-
 ```mermaid
 flowchart LR
     Client([Client])
 
-    subgraph app [LedgerFlow]
+    subgraph web [web profile]
         API["REST API<br/>(JWT auth)"]
         Posting[PostingService]
         Balance[BalanceService]
-        Reconcile[ReconciliationService]
     end
 
-    Postgres[(PostgreSQL)]
+    subgraph worker [worker profile]
+        Poller[OutboxPoller]
+        Reconcile[ReconciliationService]
+        Consumer[Event consumers]
+    end
+
+    Postgres[(PostgreSQL<br/>row-level security)]
     Redis[(Redis)]
     RabbitMQ{{RabbitMQ}}
+    Kafka{{Kafka}}
 
     Client -->|"POST /transactions<br/>GET /accounts/:id"| API
     Client -->|POST /reconciliation/trigger| API
 
-    API --> Posting --> Postgres
+    API --> Posting -->|"ledger + outbox_event<br/>one transaction"| Postgres
     API --> Balance
     Balance <-->|cache-aside| Redis
     Balance --> Postgres
     Posting -. evict on commit .-> Redis
 
-    API -->|publish| RabbitMQ -->|consume| Reconcile --> Postgres
+    API -->|publish job| RabbitMQ -->|consume| Reconcile --> Postgres
+
+    Postgres -->|"FOR UPDATE SKIP LOCKED"| Poller -->|publish event| Kafka
+    Kafka --> Consumer
 ```
 
-Two paths through one service: a **synchronous** path (JWT-authenticated REST → service layer
-→ JPA → PostgreSQL, with Redis alongside for balance caching) for posting and reading, and an
-**asynchronous** path (service → RabbitMQ → a dedicated worker → PostgreSQL) for reconciliation,
-which shouldn't block a caller. JWT auth carries a role claim distinguishing `ADMIN` (can post,
-can trigger reconciliation) from `VIEWER` (read-only).
+Three paths, and one process split in two.
+
+The **synchronous** path is JWT-authenticated REST → service layer → JPA → PostgreSQL, with
+Redis alongside for balance caching. The **job** path hands work that shouldn't block a caller
+to RabbitMQ, where a worker picks it up with retry and dead-letter handling. The **event** path
+is new and different in kind: a posting writes its event into an `outbox_event` row in the same
+database transaction as the ledger change, and a poller moves those rows onto Kafka.
+
+That distinction is the design: **RabbitMQ carries work, Kafka carries facts.** A job is
+addressed to a worker, is consumed once and then is gone. An event is a statement about
+something that happened, is retained, and can be read by consumers that don't exist yet or
+replayed from the beginning to rebuild a read model. Using one broker for both means either
+losing history or building a queue on top of a log.
+
+The outbox is what makes the event path trustworthy. Writing to Postgres and then calling
+`KafkaTemplate.send()` is a dual write: crash in between and the ledger and the event stream
+disagree, with no way afterwards to tell which is right. Writing the event as a row makes "the
+transaction happened" and "the event exists" one atomic fact, at the cost of at-least-once
+delivery — a crash after a successful send but before the row is marked published will
+republish it, so consumers deduplicate on `eventId`.
+
+Both halves run the **same image**, told by Spring profile which half to be. `web` serves HTTP
+and records outbox rows; `worker` drains the outbox, consumes queues and runs scheduled jobs.
+Splitting them lets the HTTP tier scale on request latency and the worker on queue depth, and
+means a slow reconciliation can never eat a thread that was going to serve a request. It also
+contains privilege: the outbox poller needs an identity that can read every organization's
+events, and only the worker process ever opens a connection with it.
+
+JWT auth carries a role claim distinguishing `ADMIN` (can post, can trigger reconciliation)
+from `VIEWER` (read-only), and an `org` claim that scopes every query through PostgreSQL
+row-level security.
 
 **Stack**: Java 17, Spring Boot 3.5, PostgreSQL + Spring Data JPA, Flyway (versioned schema
-migrations), Redis, RabbitMQ, JWT (jjwt), Docker Compose, JUnit + Mockito for unit tests,
-Testcontainers for integration tests against real Postgres/Redis/RabbitMQ.
+migrations), Redis, RabbitMQ, Kafka (KRaft, no ZooKeeper), Micrometer Tracing, JWT (jjwt),
+Docker Compose, JUnit + Mockito for unit tests, Testcontainers for integration tests against
+real Postgres/Redis/RabbitMQ/Kafka.
 
 ## Getting started
 
@@ -87,10 +129,13 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-This brings up Postgres, Redis, RabbitMQ, the app, and the web frontend, waits for each
-dependency to be healthy before starting the next, and applies the Flyway migrations
-(including two seeded demo users and three demo accounts) on first boot. The API is then
-available at `http://localhost:8080`, and the web UI at `http://localhost:8081`.
+This brings up Postgres, Redis, RabbitMQ, Kafka, the API, the worker and the web frontend,
+waits for each dependency to be healthy before starting the next, and applies the Flyway
+migrations (including two seeded demo users and three demo accounts) on first boot. The API is
+then available at `http://localhost:8080`, and the web UI at `http://localhost:8081`.
+
+First boot is slow -- the worker deliberately waits for the API to be healthy before starting,
+because the API owns the migrations and the worker validates its schema against them.
 
 ### Demo credentials
 
@@ -220,6 +265,50 @@ Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVA
 `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_CREDENTIALS`, `UNAUTHENTICATED`, `FORBIDDEN`,
 `INTERNAL_ERROR`.
 
+### Watching the event stream
+
+Post a transaction, then read what the ledger announced about it:
+
+```bash
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic ledger.transactions.v1 \
+  --from-beginning --property print.headers=true
+```
+
+```
+eventType:transaction.posted,orgId:1,sequence:14,traceparent:00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+{"eventId":"7d1c...","eventType":"transaction.posted","schemaVersion":1,"orgId":1,
+ "aggregateType":"TRANSACTION","aggregateId":"42","occurredAt":"2026-09-14T09:12:03.114Z",
+ "payload":{"transactionId":42,"idempotencyKey":"inv-2026-0001","description":"Invoice 1001",
+            "postedAt":"2026-09-14T09:12:03.101Z",
+            "entries":[{"accountId":1,"accountName":"Cash","entryType":"DEBIT","amount":250.00},
+                       {"accountId":3,"accountName":"Revenue","entryType":"CREDIT","amount":250.00}]}}
+```
+
+That `traceparent` is the trace id of the HTTP request that posted the transaction, carried
+through the outbox row and onto the broker. The same id appears in the worker's log line when
+it consumes the event — one trace across four processes.
+
+The queue behind it is visible in the database:
+
+```sql
+-- what has not been published yet, and how far behind the poller is
+SELECT count(*), min(now() - created_at) AS newest, max(now() - created_at) AS oldest
+FROM outbox_event WHERE published_at IS NULL;
+
+-- anything that has failed to publish
+SELECT id, event_type, attempts, last_error FROM outbox_event WHERE attempts > 0;
+```
+
+A steadily growing unpublished count is the signal that the event path is broken, and it is
+visible without touching Kafka at all — the outbox is the source of truth for what *should*
+have been published.
+
+Ordering is per organization: the partition key is `org-{orgId}`, so every event for one
+business lands on one partition and is consumed in the order it was committed. Events for
+different organizations are free to be processed in parallel.
+
 ### OpenAPI
 
 The generated spec is at `/v3/api-docs` and Swagger UI at `/swagger-ui.html`, both unauthenticated
@@ -255,20 +344,26 @@ above.
 
 ```bash
 mvn test          # unit tests only (JUnit + Mockito, no external dependencies)
-mvn verify         # unit + integration tests (spins up real Postgres/Redis/RabbitMQ via Testcontainers)
+mvn verify        # unit + integration tests (spins up real Postgres/Redis/RabbitMQ/Kafka via Testcontainers)
 ```
 
 ## Known limitations
 
 This project is honest about where it's simplified, rather than hiding the gaps:
 
-- **No distributed tracing** across the async reconciliation path yet.
+- **Traces are recorded but not exported** — spans exist and a `traceparent` propagates from
+  an HTTP request through the outbox to a Kafka consumer, but nothing ships them to a
+  collector yet, so there is no UI to look at a trace in.
+- **Events are published, not yet consumed for anything** — the only consumer logs what it
+  receives. Read models built from the stream come later.
 - **Cached running total, not full event-sourcing** — account balances are a cached running
   total updated on each posting, rather than always derived by summing entries. A stricter
   design would recompute balances purely from the entry log.
 - **No currency conversion** — currency is stored per account, but converting between
   currencies isn't implemented.
-- **Single-node Redis and RabbitMQ** — no HA/clustering setup for either.
+- **Single-node Redis, RabbitMQ and Kafka** — no HA or clustering for any of them, and the
+  Kafka topic is created with replication factor 1. The outbox table is the durable record;
+  Kafka is treated as transport that can be replayed into.
 
 These are the natural next steps, not oversights being hidden.
 

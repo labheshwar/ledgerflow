@@ -2,6 +2,52 @@ spring:
   application:
     name: ledgerflow
 
+  profiles:
+    # One codebase, two roles. `web` serves HTTP; `worker` consumes queues,
+    # drains the outbox and runs scheduled jobs. Both containers run the same
+    # image and differ only in which profile they are given.
+    #
+    # This is `default`, not `active`: it applies only when nothing else is
+    # specified, so a bare local run behaves like the whole application while
+    # the compose stack and Kubernetes set the split explicitly.
+    default: web,worker
+
+  kafka:
+    # Strings on the wire, both directions. Spring's JsonSerializer stamps
+    # the Java class name into a header and the matching deserializer trusts
+    # it, which couples every consumer to the producer's package layout -- a
+    # class rename becomes a breaking wire change. The envelope carries its
+    # own schemaVersion instead.
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Never acknowledge a send until every in-sync replica has it: this is
+      # the event log the ledger's read models are rebuilt from.
+      acks: all
+      properties:
+        # Makes a producer-side retry a no-op rather than a duplicate, which
+        # matters because the outbox already gives us at-least-once and
+        # there is no reason to make it worse.
+        enable.idempotence: true
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+ledgerflow:
+  outbox:
+    poll-interval-ms: 500
+    batch-size: 500
+    publish-timeout-seconds: 30
+
+management:
+  tracing:
+    sampling:
+      # Everything, for now. Nothing exports spans yet -- they exist so a
+      # traceparent can be stamped on outbox rows; sampling gets tuned when
+      # there is a collector to pay for it (milestone 18).
+      probability: 1.0
+
 jwt:
   secret: ${JWT_SECRET:dev-only-insecure-default-secret-key-please-override-me}
   expiration-minutes: 60

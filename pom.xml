@@ -68,10 +68,15 @@
             <artifactId>spring-boot-starter-cache</artifactId>
         </dependency>
 
-        <!-- Messaging -->
+        <!-- Messaging: RabbitMQ carries work (job queues, retry/DLQ);
+             Kafka carries facts (the event log projections are built from). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
         </dependency>
 
         <!-- Security / JWT -->
@@ -101,6 +106,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Supplies the Tracer used to stamp a W3C traceparent on every
+             outbox row. No exporter yet, so spans are recorded and dropped;
+             wiring them to a collector is milestone 18. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
         </dependency>
 
         <!-- Test -->

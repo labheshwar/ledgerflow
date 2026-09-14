@@ -47,7 +47,44 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
-      start_period: 30s
+      # The broker plus the management plugin regularly needs well over a
+      # minute on a busy machine, and a grace period shorter than that makes
+      # `docker compose up` fail on the developer with the slowest laptop.
+      start_period: 120s
+
+
+  # Single-node KRaft: broker and controller in one process, no ZooKeeper.
+  # Storage is deliberately ephemeral -- the outbox table is the durable
+  # record of every event, so a wiped broker on restart costs nothing that
+  # a replay cannot rebuild.
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      # Two listeners because a broker tells clients where to reconnect:
+      # containers must be told `kafka`, a console consumer on the host must
+      # be told `localhost`, and one advertised address cannot be both.
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: ledgerflow-local-cluster-0
+    ports:
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
 
   app:
     build:
@@ -55,7 +92,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      SPRING_PROFILES_ACTIVE: docker
+      SPRING_PROFILES_ACTIVE: docker,web
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-ledgerflow}
@@ -65,12 +102,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER:-ledgerflow_app}
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app-change-me}
+      # Flyway creates this role in V11; only the worker ever logs in with it.
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-admin-change-me}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-ledgerflow}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-at-least-32-bytes}
     ports:
       - "8080:8080"
@@ -81,8 +121,55 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
+
+
+  # The same image as `app`, told to be the other half of the application.
+  # No published port: it serves actuator on 8080 for its own healthcheck and
+  # for metrics scraping, but nothing routes traffic to it.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,worker
+      # Migrations belong to exactly one process. Flyway's lock would make
+      # concurrent runs safe, but "whichever container won the race applied
+      # the schema" is not a thing anyone wants to debug.
+      SPRING_FLYWAY_ENABLED: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-ledgerflow}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-ledgerflow_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app-change-me}
+      # Only the worker gets the identity that can see across organizations.
+      POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:-ledgerflow_admin}
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-admin-change-me}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-ledgerflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-at-least-32-bytes}
+    depends_on:
+      # Waits for app rather than for postgres: the schema has to exist
+      # before a process that skips migrations tries to validate against it.
+      app:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 10
