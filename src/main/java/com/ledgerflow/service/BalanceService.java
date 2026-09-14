@@ -67,7 +67,9 @@ public class BalanceService {
      * path. Evicted by BalanceCacheEvictor the moment a posting commits
      * against this account -- never served stale past that point.
      */
-    @Cacheable(value = BalanceCacheEvictor.CACHE_NAME, key = "#accountId")
+    @Cacheable(
+            value = BalanceCacheEvictor.CACHE_NAME,
+            key = "T(com.ledgerflow.service.BalanceCacheEvictor).key(T(com.ledgerflow.tenancy.TenantContext).require(), #accountId)")
     public AccountBalance getCachedBalance(Long accountId) {
         Account account = getAccount(accountId);
         return new AccountBalance(account.getId(), account.getBalance(), account.getCurrency());

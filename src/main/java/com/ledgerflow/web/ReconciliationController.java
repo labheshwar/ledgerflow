@@ -7,6 +7,7 @@ import com.ledgerflow.messaging.ReconciliationProducer;
 import com.ledgerflow.repository.BatchStatusCount;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.ReconciliationResultRepository;
+import com.ledgerflow.tenancy.TenantContext;
 import com.ledgerflow.web.dto.PagedResponse;
 import com.ledgerflow.web.dto.ReconciliationBatchResponse;
 import com.ledgerflow.web.dto.ReconciliationBatchSummaryResponse;
@@ -83,10 +84,11 @@ public class ReconciliationController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ReconciliationBatchResponse trigger() {
         ReconciliationBatch batch = new ReconciliationBatch();
+        batch.setOrgId(TenantContext.require());
         batch.setStatus(ReconciliationStatus.PENDING);
         batch = batchRepository.save(batch);
 
-        producer.publish(batch.getId());
+        producer.publish(batch.getOrgId(), batch.getId());
 
         return ReconciliationBatchResponse.from(batch, List.of());
     }

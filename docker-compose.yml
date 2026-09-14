@@ -59,8 +59,12 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-ledgerflow}
+      # Flyway connects as the owner; the app itself connects as the
+      # restricted role created in V10 so row-level security applies to it.
       POSTGRES_USER: ${POSTGRES_USER:-ledgerflow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-ledgerflow_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app-change-me}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       RABBITMQ_HOST: rabbitmq

@@ -4,6 +4,8 @@ import { apiFetch, clearToken, getToken, setToken } from '@/lib/http'
 interface JwtPayload {
   sub: string
   role: 'ADMIN' | 'VIEWER'
+  /** The organization this session acts for; signed, so it can't be spoofed. */
+  org: number
   exp: number
 }
 
@@ -51,6 +53,9 @@ export const useAuthStore = defineStore('auth', {
     role(): 'ADMIN' | 'VIEWER' {
       return this.payload?.role ?? 'VIEWER'
     },
+    orgId(): number | null {
+      return this.payload?.org ?? null
+    },
     isAdmin(): boolean {
       return this.role === 'ADMIN'
     },
@@ -66,6 +71,11 @@ export const useAuthStore = defineStore('auth', {
       })
       this.token = response.token
       setToken(response.token)
+    },
+    /** Replaces the session token, e.g. after signing up or switching org. */
+    adopt(token: string) {
+      this.token = token
+      setToken(token)
     },
     logout() {
       this.token = null

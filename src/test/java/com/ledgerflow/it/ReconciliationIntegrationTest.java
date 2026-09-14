@@ -29,11 +29,12 @@ class ReconciliationIntegrationTest extends AbstractIntegrationTest {
     @Test
     void triggeringReconciliationCompletesAsynchronouslyOverRealRabbitMq() {
         ReconciliationBatch batch = new ReconciliationBatch();
+        batch.setOrgId(DEMO_ORG_ID);
         batch.setStatus(ReconciliationStatus.PENDING);
         batch = batchRepository.save(batch);
         Long batchId = batch.getId();
 
-        producer.publish(batchId);
+        producer.publish(DEMO_ORG_ID, batchId);
 
         awaitCondition(() -> batchRepository.findById(batchId)
                 .map(b -> b.getStatus() == ReconciliationStatus.COMPLETED)

@@ -36,8 +36,14 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private AuditLogRepository auditLogRepository;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    /**
+     * These assertions are about database machinery -- the append-only
+     * trigger and the idempotency constraint -- so they run as the owner.
+     * Through the application's own connection, row-level security would
+     * simply filter the target rows away and the UPDATE would match nothing,
+     * which looks exactly like the trigger not firing.
+     */
+    private final JdbcTemplate jdbcTemplate = ownerJdbc();
 
     @Test
     void postingWritesAreVisibleAndAuditLogRejectsMutationAtTheDatabaseLevel() {
@@ -75,12 +81,12 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
     void transactionsIdempotencyKeyIsUniqueAtTheDatabaseLevel() {
         String key = "it-unique-" + UUID.randomUUID();
         jdbcTemplate.update(
-                "INSERT INTO transactions (idempotency_key, description, status) VALUES (?, ?, ?)",
-                key, "first", "POSTED");
+                "INSERT INTO transactions (org_id, idempotency_key, description, status) VALUES (?, ?, ?, ?)",
+                DEMO_ORG_ID, key, "first", "POSTED");
 
         assertThatThrownBy(() -> jdbcTemplate.update(
-                        "INSERT INTO transactions (idempotency_key, description, status) VALUES (?, ?, ?)",
-                        key, "second", "POSTED"))
+                        "INSERT INTO transactions (org_id, idempotency_key, description, status) VALUES (?, ?, ?, ?)",
+                        DEMO_ORG_ID, key, "second", "POSTED"))
                 .isInstanceOf(DataAccessException.class);
     }
 
@@ -88,6 +94,7 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
         Account account = new Account();
         account.setName(name);
         account.setCurrency("USD");
+        account.setOrgId(DEMO_ORG_ID);
         account.setType(AccountType.ASSET);
         return accountRepository.save(account);
     }

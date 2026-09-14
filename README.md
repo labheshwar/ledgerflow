@@ -155,6 +155,37 @@ The trigger call returns immediately (`202 Accepted`, status `PENDING`); the bat
 `COMPLETED` shortly after, once the reconciliation worker has consumed the message and recorded
 a `MATCHED`/`MISMATCHED` result per account.
 
+### Organizations and tenant isolation
+
+Every user signs in to one organization at a time, and all ledger data belongs to exactly one
+organization. `POST /auth/signup` creates a user together with the organization they will
+administer; `GET /auth/me` returns the current organization and any others the user belongs to;
+`POST /auth/switch-org/{id}` re-issues a token for one of those.
+
+The organization is a **signed claim inside the JWT**, not a header — the tenant a request acts
+for must not be something the caller can change at will, so switching organizations means
+getting a new token.
+
+Isolation is enforced by Postgres, not by application code remembering to filter:
+
+- Every tenant-scoped table carries `org_id` and has a row-level security policy.
+- `OrgAwareJpaTransactionManager` publishes the tenant into the session
+  (`set_config('app.current_org', …, true)`) as each transaction begins — on the exact
+  connection that transaction will use, and transaction-scoped so nothing leaks back into the
+  pool.
+- The policy reads `current_setting('app.current_org', true)`, which yields NULL when unset.
+  `org_id = NULL` is never true, so a request that fails to establish tenant context sees
+  **zero rows rather than every row**.
+- The application connects as `ledgerflow_app`, which is deliberately not a superuser. Flyway
+  connects separately as the owning role. This split is load-bearing: superusers bypass RLS
+  entirely, so an app running as the owner would make every policy decorative.
+- `RlsPolicyVerifier` refuses to start if a tenant-scoped table is missing its policy, or has
+  RLS enabled but not forced.
+
+`RlsIntegrationTest` proves the behaviour against real Postgres: a cross-organization lookup
+returns empty rather than denied — RLS filters rows out rather than raising, so the caller
+cannot distinguish a row that never existed from one belonging to somebody else.
+
 ### Listing, paging and filtering
 
 Every list endpoint (`/accounts`, `/transactions`, `/reconciliation`, `/audit-log`) is paged and

@@ -23,6 +23,9 @@ public class ReconciliationResult {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "org_id", nullable = false)
+    private Long orgId;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "batch_id", nullable = false)
     private ReconciliationBatch batch;
@@ -47,6 +50,14 @@ public class ReconciliationResult {
     @PrePersist
     protected void onCreate() {
         createdAt = OffsetDateTime.now();
+    }
+
+    public Long getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(Long orgId) {
+        this.orgId = orgId;
     }
 
     public Long getId() {

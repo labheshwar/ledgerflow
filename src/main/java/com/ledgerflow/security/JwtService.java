@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class JwtService {
 
     private static final String ROLE_CLAIM = "role";
+    private static final String ORG_CLAIM = "org";
 
     private final SecretKey signingKey;
     private final long expirationMinutes;
@@ -27,11 +28,17 @@ public class JwtService {
         this.expirationMinutes = expirationMinutes;
     }
 
-    public String generateToken(String username, Role role) {
+    /**
+     * The organization is a signed claim rather than a client-supplied header:
+     * the tenant a request acts for must not be something the caller can
+     * change at will. Switching organizations means getting a new token.
+     */
+    public String generateToken(String username, Role role, Long orgId) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(username)
                 .claim(ROLE_CLAIM, role.name())
+                .claim(ORG_CLAIM, orgId)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(expirationMinutes * 60)))
                 .signWith(signingKey)
@@ -56,5 +63,10 @@ public class JwtService {
 
     public Role extractRole(Claims claims) {
         return Role.valueOf(claims.get(ROLE_CLAIM, String.class));
+    }
+
+    public Long extractOrgId(Claims claims) {
+        Number orgId = claims.get(ORG_CLAIM, Number.class);
+        return orgId == null ? null : orgId.longValue();
     }
 }

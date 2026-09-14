@@ -1,14 +1,36 @@
 <script setup lang="ts">
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useRouter } from 'vue-router'
+import { authKeys, getCurrentUser, switchOrganization } from '@/lib/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 
 const auth = useAuthStore()
 const toasts = useToastStore()
 const router = useRouter()
+const queryClient = useQueryClient()
+
+const { data: me } = useQuery({
+  queryKey: authKeys.me(),
+  queryFn: ({ signal }) => getCurrentUser(signal),
+  staleTime: 5 * 60_000,
+})
+
+const switchOrg = useMutation({
+  mutationFn: switchOrganization,
+  onSuccess: ({ token }) => {
+    // The organization is a claim inside the token, so switching means
+    // adopting a new one -- and every cached query belongs to the old org.
+    auth.adopt(token)
+    queryClient.clear()
+    toasts.success('Switched organization')
+  },
+  onError: () => toasts.error('Unable to switch organization.'),
+})
 
 function signOut() {
   auth.logout()
+  queryClient.clear()
   router.push({ name: 'login' })
   toasts.success('Signed out')
 }
@@ -47,8 +69,23 @@ const navItems = [
     <aside class="sidebar">
       <div class="brand">
         <div class="mark">LF</div>
-        <div class="name">LedgerFlow</div>
+        <div class="brand-text">
+          <div class="name">LedgerFlow</div>
+          <div v-if="me" class="org-name">{{ me.currentOrgName }}</div>
+        </div>
       </div>
+
+      <select
+        v-if="me && me.memberships.length > 1"
+        class="org-switcher"
+        :value="me.currentOrgId"
+        :disabled="switchOrg.isPending.value"
+        @change="switchOrg.mutate(Number(($event.target as HTMLSelectElement).value))"
+      >
+        <option v-for="m in me.memberships" :key="m.orgId" :value="m.orgId">
+          {{ m.organizationName }}
+        </option>
+      </select>
 
       <RouterLink
         v-for="item in navItems"
@@ -128,6 +165,27 @@ const navItems = [
   font-family: 'Source Serif 4', serif;
   font-weight: 600;
   font-size: 15px;
+}
+.brand-text {
+  min-width: 0;
+}
+.org-name {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.org-switcher {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--ink);
 }
 .nav-item {
   display: flex;

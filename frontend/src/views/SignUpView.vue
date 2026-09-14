@@ -1,28 +1,43 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ApiError } from '../lib/api'
-import { useAuthStore } from '../stores/auth'
+import { computed, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { signUp } from '@/lib/api/auth'
+import { ApiError } from '@/lib/http'
+import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
 
 const auth = useAuthStore()
+const toasts = useToastStore()
 const router = useRouter()
-const route = useRoute()
 
-const form = reactive({ username: '', password: '' })
+const form = reactive({ organizationName: '', username: '', password: '' })
 const submitting = ref(false)
 const errorText = ref('')
+const submitAttempted = ref(false)
+
+const passwordTooShort = computed(() => form.password.length > 0 && form.password.length < 8)
+const canSubmit = computed(
+  () =>
+    form.organizationName.trim().length > 0 && form.username.trim().length >= 3 && form.password.length >= 8,
+)
 
 async function submit() {
-  if (!form.username.trim() || !form.password || submitting.value) return
+  submitAttempted.value = true
+  if (!canSubmit.value || submitting.value) return
 
   submitting.value = true
   errorText.value = ''
   try {
-    await auth.login(form.username.trim(), form.password)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
-    router.push(redirect)
+    const { token } = await signUp({
+      username: form.username.trim(),
+      password: form.password,
+      organizationName: form.organizationName.trim(),
+    })
+    auth.adopt(token)
+    toasts.success(`Welcome to ${form.organizationName.trim()}`)
+    router.push('/dashboard')
   } catch (e) {
-    errorText.value = e instanceof ApiError ? e.message : 'Unable to sign in. Please try again.'
+    errorText.value = e instanceof ApiError ? e.message : 'Unable to create your account.'
   } finally {
     submitting.value = false
   }
@@ -33,40 +48,48 @@ async function submit() {
   <div class="wrap theme-light">
     <div class="card">
       <div class="mark">LF</div>
-      <h1 class="serif">Sign in to LedgerFlow</h1>
-      <div class="sub">Internal ledger &amp; reconciliation console</div>
+      <h1 class="serif">Create your organization</h1>
+      <div class="sub">Your books, your ledger — separate from everyone else's.</div>
 
       <form @submit.prevent="submit">
         <div class="field">
-          <label>Username</label>
+          <label for="org">Organization name</label>
+          <input id="org" v-model="form.organizationName" class="input" placeholder="Acme Design Studio" />
+        </div>
+        <div class="field">
+          <label for="username">Username</label>
           <input
+            id="username"
             v-model="form.username"
             class="input"
-            type="text"
-            placeholder="admin"
             autocomplete="username"
+            placeholder="At least 3 characters"
           />
         </div>
         <div class="field">
-          <label>Password</label>
+          <label for="password">Password</label>
           <input
+            id="password"
             v-model="form.password"
             class="input"
+            :class="{ error: submitAttempted && passwordTooShort }"
             type="password"
-            placeholder="••••••••"
-            autocomplete="current-password"
+            autocomplete="new-password"
+            placeholder="At least 8 characters"
           />
+          <div v-if="passwordTooShort" class="field-error">Passwords must be at least 8 characters.</div>
         </div>
 
         <div v-if="errorText" class="field-error">{{ errorText }}</div>
 
         <button class="btn-primary" type="submit" :disabled="submitting">
-          {{ submitting ? 'Signing in…' : 'Sign in' }}
+          {{ submitting ? 'Creating…' : 'Create organization' }}
         </button>
       </form>
+
       <div class="foot">
-        New here?
-        <RouterLink to="/signup">Create an organization</RouterLink>
+        Already have an account?
+        <RouterLink to="/login">Sign in</RouterLink>
       </div>
     </div>
   </div>

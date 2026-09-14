@@ -4,6 +4,7 @@ import com.ledgerflow.config.RabbitMQConfig;
 import com.ledgerflow.domain.ReconciliationBatch;
 import com.ledgerflow.domain.ReconciliationStatus;
 import com.ledgerflow.repository.ReconciliationBatchRepository;
+import com.ledgerflow.tenancy.TenantContext;
 import java.time.OffsetDateTime;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -38,7 +39,10 @@ public class ReconciliationFailureRecoverer implements MessageRecoverer {
     public void recover(Message message, Throwable cause) {
         try {
             ReconciliationRequestedEvent event = (ReconciliationRequestedEvent) converter.fromMessage(message);
-            batchRepository.findById(event.batchId()).ifPresent(batch -> markFailed(batch));
+            // Runs on a consumer thread with no tenant of its own; without
+            // this the batch lookup is filtered away and nothing is marked.
+            TenantContext.runAs(
+                    event.orgId(), () -> batchRepository.findById(event.batchId()).ifPresent(this::markFailed));
         } finally {
             delegate.recover(message, cause);
         }

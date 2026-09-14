@@ -8,6 +8,7 @@ import com.ledgerflow.exception.AccountNotFoundException;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.EntryRepository;
 import com.ledgerflow.repository.TransactionRepository;
+import com.ledgerflow.tenancy.TenantContext;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -45,9 +46,11 @@ class PostingExecutor {
 
     @Transactional
     Transaction execute(PostingCommand command) {
+        Long orgId = TenantContext.require();
         Map<Long, Account> accountsById = loadAccounts(command);
 
         Transaction transaction = new Transaction();
+        transaction.setOrgId(orgId);
         transaction.setIdempotencyKey(command.idempotencyKey());
         transaction.setDescription(command.description());
         transaction = transactionRepository.save(transaction);
@@ -59,6 +62,7 @@ class PostingExecutor {
             account.setBalance(balanceBefore.add(delta));
 
             Entry entry = new Entry();
+            entry.setOrgId(orgId);
             entry.setTransaction(transaction);
             entry.setAccount(account);
             entry.setEntryType(line.entryType());
@@ -76,7 +80,7 @@ class PostingExecutor {
                 null,
                 Map.of("idempotencyKey", transaction.getIdempotencyKey(), "entryCount", command.entries().size()));
 
-        accountsById.keySet().forEach(balanceCacheEvictor::evictAfterCommit);
+        accountsById.keySet().forEach(accountId -> balanceCacheEvictor.evictAfterCommit(orgId, accountId));
 
         return transaction;
     }

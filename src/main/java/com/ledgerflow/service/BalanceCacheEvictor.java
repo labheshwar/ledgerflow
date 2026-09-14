@@ -25,23 +25,33 @@ public class BalanceCacheEvictor {
         this.cacheManager = cacheManager;
     }
 
-    public void evictAfterCommit(Long accountId) {
+    /**
+     * Keys carry the organization because a cache hit answers before the
+     * query ever reaches Postgres, and therefore before row-level security
+     * has any say. Keying on account id alone would let one organization
+     * read another's balance straight out of Redis.
+     */
+    public static String key(Long orgId, Long accountId) {
+        return orgId + ":" + accountId;
+    }
+
+    public void evictAfterCommit(Long orgId, Long accountId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            evictNow(accountId);
+            evictNow(orgId, accountId);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                evictNow(accountId);
+                evictNow(orgId, accountId);
             }
         });
     }
 
-    private void evictNow(Long accountId) {
+    private void evictNow(Long orgId, Long accountId) {
         Cache cache = cacheManager.getCache(CACHE_NAME);
         if (cache != null) {
-            cache.evict(accountId);
+            cache.evict(key(orgId, accountId));
         }
     }
 }

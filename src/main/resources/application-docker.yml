@@ -1,13 +1,15 @@
 # Activated with `docker` profile: points at the Postgres/Redis/RabbitMQ
-# containers from docker-compose.yml. Host defaults assume the app runs on
-# the host machine talking to the compose-exposed ports; once the app itself
-# is containerized (a later milestone) these same keys get overridden via
-# environment variables to the in-network service names instead.
+# containers from docker-compose.yml.
+#
+# Note the two database identities. Flyway connects as the owning role to
+# create and alter tables; the application itself connects as ledgerflow_app,
+# which is deliberately not a superuser so that row-level security actually
+# applies to it (see V10).
 spring:
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ledgerflow}
-    username: ${POSTGRES_USER:ledgerflow}
-    password: ${POSTGRES_PASSWORD:change-me}
+    username: ${POSTGRES_APP_USER:ledgerflow_app}
+    password: ${POSTGRES_APP_PASSWORD:app-change-me}
 
   jpa:
     hibernate:
@@ -16,6 +18,11 @@ spring:
 
   flyway:
     enabled: true
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:ledgerflow}
+    user: ${POSTGRES_USER:ledgerflow}
+    password: ${POSTGRES_PASSWORD:change-me}
+    placeholders:
+      app_password: ${POSTGRES_APP_PASSWORD:app-change-me}
 
   data:
     redis:

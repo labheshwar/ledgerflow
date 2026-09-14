@@ -53,6 +53,7 @@ public class ReconciliationService {
             BigDecimal externalBalance = externalStatementFeed.fetchExternalBalance(account);
 
             ReconciliationResult result = new ReconciliationResult();
+            result.setOrgId(batch.getOrgId());
             result.setBatch(batch);
             result.setAccount(account);
             result.setLedgerBalance(ledgerBalance);

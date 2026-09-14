@@ -24,6 +24,9 @@ public class AuditLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "org_id", nullable = false)
+    private Long orgId;
+
     @Column(name = "entity_type", nullable = false, length = 50)
     private String entityType;
 
@@ -52,7 +55,14 @@ public class AuditLog {
     }
 
     public AuditLog(
-            String entityType, Long entityId, String action, String actor, String beforeState, String afterState) {
+            Long orgId,
+            String entityType,
+            Long entityId,
+            String action,
+            String actor,
+            String beforeState,
+            String afterState) {
+        this.orgId = orgId;
         this.entityType = entityType;
         this.entityId = entityId;
         this.action = action;
@@ -68,6 +78,10 @@ public class AuditLog {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getOrgId() {
+        return orgId;
     }
 
     public String getEntityType() {

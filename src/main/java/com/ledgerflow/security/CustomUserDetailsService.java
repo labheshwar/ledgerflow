@@ -1,11 +1,17 @@
 package com.ledgerflow.security;
 
 import com.ledgerflow.repository.UserRepository;
+import java.util.List;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+/**
+ * Answers "are these credentials valid", nothing more. Authority now depends
+ * on which organization the session is for, so it is resolved from the
+ * membership at token-issue time in AuthService rather than here.
+ */
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
@@ -23,8 +29,7 @@ public class CustomUserDetailsService implements UserDetailsService {
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getUsername())
                 .password(user.getPasswordHash())
-                .authorities("ROLE_" + user.getRole().name())
+                .authorities(List.of())
                 .build();
     }
 }
-

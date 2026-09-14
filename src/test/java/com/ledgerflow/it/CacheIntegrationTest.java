@@ -42,14 +42,17 @@ class CacheIntegrationTest extends AbstractIntegrationTest {
         Account account = new Account();
         account.setName("IT Cache Account " + UUID.randomUUID());
         account.setCurrency("USD");
+        account.setOrgId(DEMO_ORG_ID);
         account.setType(AccountType.ASSET);
         account = accountRepository.save(account);
         Long accountId = account.getId();
-        String cacheKey = BalanceCacheEvictor.CACHE_NAME + "::" + accountId;
+        String cacheKey =
+                BalanceCacheEvictor.CACHE_NAME + "::" + BalanceCacheEvictor.key(DEMO_ORG_ID, accountId);
 
         Account counterparty = new Account();
         counterparty.setName("IT Cache Counterparty " + UUID.randomUUID());
         counterparty.setCurrency("USD");
+        counterparty.setOrgId(DEMO_ORG_ID);
         counterparty.setType(AccountType.ASSET);
         counterparty = accountRepository.save(counterparty);
 

@@ -6,6 +6,7 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/dashboard' },
     { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
+    { path: '/signup', name: 'signup', component: () => import('../views/SignUpView.vue') },
     { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
     { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
     {
@@ -38,13 +39,16 @@ const router = createRouter({
   ],
 })
 
+const PUBLIC_ROUTES = new Set(['login', 'signup'])
+
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  const isPublic = PUBLIC_ROUTES.has(String(to.name))
 
-  if (to.name !== 'login' && !auth.isAuthenticated) {
+  if (!isPublic && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (to.name === 'login' && auth.isAuthenticated) {
+  if (isPublic && auth.isAuthenticated) {
     return { name: 'dashboard' }
   }
 })

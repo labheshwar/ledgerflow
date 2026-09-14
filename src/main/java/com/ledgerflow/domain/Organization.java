@@ -9,24 +9,19 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 
-/**
- * A global login identity. Which organizations this user can reach, and what
- * they may do in each, lives on {@link OrgMember} -- one person can hold
- * different roles in different organizations.
- */
 @Entity
-@Table(name = "users")
-public class User {
+@Table(name = "organizations")
+public class Organization {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
-    private String username;
+    @Column(nullable = false, length = 200)
+    private String name;
 
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
+    @Column(name = "base_currency", nullable = false, length = 3)
+    private String baseCurrency;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -34,26 +29,29 @@ public class User {
     @PrePersist
     protected void onCreate() {
         createdAt = OffsetDateTime.now();
+        if (baseCurrency == null) {
+            baseCurrency = "USD";
+        }
     }
 
     public Long getId() {
         return id;
     }
 
-    public String getUsername() {
-        return username;
+    public String getName() {
+        return name;
     }
 
-    public void setUsername(String username) {
-        this.username = username;
+    public void setName(String name) {
+        this.name = name;
     }
 
-    public String getPasswordHash() {
-        return passwordHash;
+    public String getBaseCurrency() {
+        return baseCurrency;
     }
 
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
+    public void setBaseCurrency(String baseCurrency) {
+        this.baseCurrency = baseCurrency;
     }
 
     public OffsetDateTime getCreatedAt() {

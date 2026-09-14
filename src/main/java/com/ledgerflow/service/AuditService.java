@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ledgerflow.domain.AuditLog;
 import com.ledgerflow.repository.AuditLogRepository;
+import com.ledgerflow.tenancy.TenantContext;
 import java.util.Map;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -23,7 +24,8 @@ public class AuditService {
     }
 
     public void record(String entityType, Long entityId, String action, Map<String, Object> before, Map<String, Object> after) {
-        auditLogRepository.save(new AuditLog(entityType, entityId, action, currentActor(), toJson(before), toJson(after)));
+        auditLogRepository.save(new AuditLog(
+                TenantContext.require(), entityType, entityId, action, currentActor(), toJson(before), toJson(after)));
     }
 
     /**

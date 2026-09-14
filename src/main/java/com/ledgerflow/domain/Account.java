@@ -22,6 +22,9 @@ public class Account {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "org_id", nullable = false)
+    private Long orgId;
+
     @Column(nullable = false)
     private String name;
 
@@ -62,6 +65,14 @@ public class Account {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(Long orgId) {
+        this.orgId = orgId;
     }
 
     public String getName() {

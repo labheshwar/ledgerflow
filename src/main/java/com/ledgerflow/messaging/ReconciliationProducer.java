@@ -13,8 +13,10 @@ public class ReconciliationProducer {
         this.rabbitTemplate = rabbitTemplate;
     }
 
-    public void publish(Long batchId) {
+    public void publish(Long orgId, Long batchId) {
         rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE, RabbitMQConfig.ROUTING_KEY, new ReconciliationRequestedEvent(batchId));
+                RabbitMQConfig.EXCHANGE,
+                RabbitMQConfig.ROUTING_KEY,
+                new ReconciliationRequestedEvent(orgId, batchId));
     }
 }

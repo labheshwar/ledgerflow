@@ -46,6 +46,7 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
         Account account = new Account();
         account.setName(unique);
         account.setCurrency("USD");
+        account.setOrgId(DEMO_ORG_ID);
         account.setType(AccountType.ASSET);
         account.setBalance(BigDecimal.ZERO);
         accountRepository.save(account);
@@ -77,6 +78,7 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
         Account account = new Account();
         account.setName(unique);
         account.setCurrency("USD");
+        account.setOrgId(DEMO_ORG_ID);
         account.setType(AccountType.REVENUE);
         account.setBalance(BigDecimal.ZERO);
         accountRepository.save(account);

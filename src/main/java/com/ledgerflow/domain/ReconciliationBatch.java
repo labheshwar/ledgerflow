@@ -19,6 +19,9 @@ public class ReconciliationBatch {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "org_id", nullable = false)
+    private Long orgId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ReconciliationStatus status;
@@ -39,6 +42,14 @@ public class ReconciliationBatch {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(Long orgId) {
+        this.orgId = orgId;
     }
 
     public ReconciliationStatus getStatus() {

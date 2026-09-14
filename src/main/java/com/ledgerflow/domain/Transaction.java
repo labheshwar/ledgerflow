@@ -19,7 +19,11 @@ public class Transaction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "idempotency_key", nullable = false, unique = true)
+    @Column(name = "org_id", nullable = false)
+    private Long orgId;
+
+    /** Unique per organization, not globally -- see V9. */
+    @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
 
     @Column
@@ -42,6 +46,14 @@ public class Transaction {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(Long orgId) {
+        this.orgId = orgId;
     }
 
     public String getIdempotencyKey() {
