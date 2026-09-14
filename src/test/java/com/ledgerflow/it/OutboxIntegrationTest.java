@@ -2,22 +2,23 @@ package com.ledgerflow.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
-import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.events.LedgerTopics;
 import com.ledgerflow.repository.AccountRepository;
-import com.ledgerflow.service.EntryLine;
+import com.ledgerflow.money.Money;
+import com.ledgerflow.service.JournalBuilder;
 import com.ledgerflow.service.PostingCommand;
 import com.ledgerflow.service.PostingService;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -42,7 +43,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 class OutboxIntegrationTest extends AbstractIntegrationTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    /**
+     * USE_BIG_DECIMAL_FOR_FLOATS matters here. By default Jackson parses a
+     * JSON number like 25.00 into a double, so asText() reads back "25.0" and
+     * the exact amount is gone before any assertion runs -- a test that
+     * carefully checks money can quietly lose it in its own parser. This is
+     * the same hazard the Money type exists to close on the production side.
+     */
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+
+    /** A fixed accounting date, so the event assertions do not drift with the clock. */
+    private static final LocalDate TXN_DATE = LocalDate.of(2026, 3, 14);
 
     @Autowired
     private PostingService postingService;
@@ -67,12 +79,12 @@ class OutboxIntegrationTest extends AbstractIntegrationTest {
         Span span = tracer.nextSpan().name("post-transaction-test").start();
         Transaction transaction;
         try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
-            transaction = postingService.post(new PostingCommand(
-                    idempotencyKey,
-                    "outbox integration test",
-                    List.of(
-                            new EntryLine(debit.getId(), EntryType.DEBIT, new BigDecimal("25.00")),
-                            new EntryLine(credit.getId(), EntryType.CREDIT, new BigDecimal("25.00")))));
+            transaction = postingService.post(JournalBuilder.forDate(TXN_DATE)
+                    .withIdempotencyKey(idempotencyKey)
+                    .describedAs("outbox integration test")
+                    .debit(debit.getId(), Money.of("25.00", "USD"))
+                    .credit(credit.getId(), Money.of("25.00", "USD"))
+                    .build());
         } finally {
             span.end();
         }
@@ -94,6 +106,16 @@ class OutboxIntegrationTest extends AbstractIntegrationTest {
         assertThat(envelope.get("orgId").asLong()).isEqualTo(DEMO_ORG_ID);
         assertThat(envelope.get("payload").get("idempotencyKey").asText()).isEqualTo(idempotencyKey);
         assertThat(envelope.get("payload").get("entries")).hasSize(2);
+
+        // The accounting date travels with the event, and is not the same as
+        // when it was posted. A projection that grouped by postedAt would put
+        // this transaction in the wrong month.
+        assertThat(envelope.get("payload").get("txnDate").asText()).isEqualTo(TXN_DATE.toString());
+        assertThat(envelope.get("payload").get("postedAt").asText()).doesNotStartWith(TXN_DATE.toString());
+        assertThat(envelope.get("payload").get("currency").asText()).isEqualTo("USD");
+        assertThat(envelope.get("payload").get("baseCurrency").asText()).isEqualTo("USD");
+        assertThat(envelope.get("payload").get("entries").get(0).get("baseAmount").decimalValue())
+                .isEqualByComparingTo("25.00");
 
         UUID eventId = UUID.fromString(String.valueOf(row.get("event_id")));
         ConsumerRecord<String, String> delivered = awaitEvent(eventId);
@@ -121,12 +143,12 @@ class OutboxIntegrationTest extends AbstractIntegrationTest {
     void replayingAPostingProducesExactlyOneEvent() {
         Account debit = newAccount("Outbox Idempotent Debit");
         Account credit = newAccount("Outbox Idempotent Credit");
-        PostingCommand command = new PostingCommand(
-                "outbox-idem-" + UUID.randomUUID(),
-                "retried by an impatient client",
-                List.of(
-                        new EntryLine(debit.getId(), EntryType.DEBIT, new BigDecimal("10.00")),
-                        new EntryLine(credit.getId(), EntryType.CREDIT, new BigDecimal("10.00"))));
+        PostingCommand command = JournalBuilder.forDate(TXN_DATE)
+                .withIdempotencyKey("outbox-idem-" + UUID.randomUUID())
+                .describedAs("retried by an impatient client")
+                .debit(debit.getId(), Money.of("10.00", "USD"))
+                .credit(credit.getId(), Money.of("10.00", "USD"))
+                .build();
 
         Transaction first = postingService.post(command);
         Transaction second = postingService.post(command);
@@ -147,12 +169,12 @@ class OutboxIntegrationTest extends AbstractIntegrationTest {
     void anOutboxRowAndItsTransactionCommitTogether() {
         Account debit = newAccount("Outbox Atomic Debit");
         Account credit = newAccount("Outbox Atomic Credit");
-        Transaction transaction = postingService.post(new PostingCommand(
-                "outbox-atomic-" + UUID.randomUUID(),
-                "atomicity check",
-                List.of(
-                        new EntryLine(debit.getId(), EntryType.DEBIT, new BigDecimal("5.00")),
-                        new EntryLine(credit.getId(), EntryType.CREDIT, new BigDecimal("5.00")))));
+        Transaction transaction = postingService.post(JournalBuilder.forDate(TXN_DATE)
+                .withIdempotencyKey("outbox-atomic-" + UUID.randomUUID())
+                .describedAs("atomicity check")
+                .debit(debit.getId(), Money.of("5.00", "USD"))
+                .credit(credit.getId(), Money.of("5.00", "USD"))
+                .build());
 
         // Both rows are visible to a connection that was never part of the
         // writing transaction, which is only possible if they committed

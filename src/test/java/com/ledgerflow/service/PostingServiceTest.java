@@ -11,9 +11,9 @@ import static org.mockito.Mockito.when;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.domain.TransactionStatus;
-import com.ledgerflow.exception.UnbalancedTransactionException;
+import com.ledgerflow.money.Money;
 import com.ledgerflow.repository.TransactionRepository;
-import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,48 +42,9 @@ class PostingServiceTest {
         postingService = new PostingService(postingExecutor, transactionRepository);
     }
 
-    @Test
-    void rejectsUnbalancedEntries() {
-        PostingCommand command = balancedCommandBuilder()
-                .entries(List.of(
-                        new EntryLine(1L, EntryType.DEBIT, new BigDecimal("100.00")),
-                        new EntryLine(2L, EntryType.CREDIT, new BigDecimal("50.00"))))
-                .build();
-        when(transactionRepository.findByIdempotencyKey(IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> postingService.post(command))
-                .isInstanceOf(UnbalancedTransactionException.class);
-
-        verify(postingExecutor, never()).execute(any());
-    }
-
-    @Test
-    void rejectsFewerThanTwoEntries() {
-        PostingCommand command = balancedCommandBuilder()
-                .entries(List.of(new EntryLine(1L, EntryType.DEBIT, new BigDecimal("100.00"))))
-                .build();
-        when(transactionRepository.findByIdempotencyKey(IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> postingService.post(command))
-                .isInstanceOf(UnbalancedTransactionException.class);
-
-        verify(postingExecutor, never()).execute(any());
-    }
-
-    @Test
-    void rejectsNonPositiveAmount() {
-        PostingCommand command = balancedCommandBuilder()
-                .entries(List.of(
-                        new EntryLine(1L, EntryType.DEBIT, BigDecimal.ZERO),
-                        new EntryLine(2L, EntryType.CREDIT, BigDecimal.ZERO)))
-                .build();
-        when(transactionRepository.findByIdempotencyKey(IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> postingService.post(command))
-                .isInstanceOf(UnbalancedTransactionException.class);
-
-        verify(postingExecutor, never()).execute(any());
-    }
+    // The balance invariants moved into PostingCommand itself and are
+    // covered by JournalBuilderTest. What is left here is the part
+    // PostingService actually owns: idempotency and retry.
 
     @Test
     void postsBalancedTransaction() {
@@ -157,14 +118,13 @@ class PostingServiceTest {
     }
 
     private static PostingCommand balancedCommand() {
-        return balancedCommandBuilder().build();
-    }
-
-    private static CommandBuilder balancedCommandBuilder() {
-        return new CommandBuilder()
-                .entries(List.of(
-                        new EntryLine(1L, EntryType.DEBIT, new BigDecimal("100.00")),
-                        new EntryLine(2L, EntryType.CREDIT, new BigDecimal("100.00"))));
+        return new PostingCommand(
+                IDEMPOTENCY_KEY,
+                "test transaction",
+                LocalDate.of(2026, 3, 14),
+                List.of(
+                        new EntryLine(1L, EntryType.DEBIT, Money.of("100.00", "USD")),
+                        new EntryLine(2L, EntryType.CREDIT, Money.of("100.00", "USD"))));
     }
 
     private static Transaction transactionWithStatus(TransactionStatus status) {
@@ -172,18 +132,5 @@ class PostingServiceTest {
         transaction.setIdempotencyKey(IDEMPOTENCY_KEY);
         transaction.setStatus(status);
         return transaction;
-    }
-
-    private static final class CommandBuilder {
-        private List<EntryLine> entries;
-
-        CommandBuilder entries(List<EntryLine> entries) {
-            this.entries = entries;
-            return this;
-        }
-
-        PostingCommand build() {
-            return new PostingCommand(IDEMPOTENCY_KEY, "test transaction", entries);
-        }
     }
 }

@@ -4,16 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
-import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.service.AccountBalance;
 import com.ledgerflow.service.BalanceCacheEvictor;
 import com.ledgerflow.service.BalanceService;
-import com.ledgerflow.service.EntryLine;
-import com.ledgerflow.service.PostingCommand;
+import com.ledgerflow.money.Money;
+import com.ledgerflow.service.JournalBuilder;
 import com.ledgerflow.service.PostingService;
-import java.math.BigDecimal;
-import java.util.List;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,12 +61,12 @@ class CacheIntegrationTest extends AbstractIntegrationTest {
         assertThat(firstRead.balance()).isEqualByComparingTo("0.00");
         assertThat(redisTemplate.hasKey(cacheKey)).isTrue();
 
-        postingService.post(new PostingCommand(
-                "it-cache-" + UUID.randomUUID(),
-                "cache invalidation check",
-                List.of(
-                        new EntryLine(accountId, EntryType.DEBIT, new BigDecimal("30.00")),
-                        new EntryLine(counterparty.getId(), EntryType.CREDIT, new BigDecimal("30.00")))));
+        postingService.post(JournalBuilder.forDate(LocalDate.now(ZoneOffset.UTC))
+                .withIdempotencyKey("it-cache-" + UUID.randomUUID())
+                .describedAs("cache invalidation check")
+                .debit(accountId, Money.of("30.00", "USD"))
+                .credit(counterparty.getId(), Money.of("30.00", "USD"))
+                .build());
 
         // The posting's own transaction has already committed by the time
         // post() returns, and eviction is registered to fire on that exact

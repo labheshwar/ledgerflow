@@ -2,6 +2,7 @@ package com.ledgerflow.web.dto;
 
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.domain.TransactionStatus;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 public record TransactionResponse(
@@ -9,6 +10,7 @@ public record TransactionResponse(
         String idempotencyKey,
         String description,
         TransactionStatus status,
+        LocalDate txnDate,
         OffsetDateTime createdAt) {
 
     public static TransactionResponse from(Transaction transaction) {
@@ -17,6 +19,7 @@ public record TransactionResponse(
                 transaction.getIdempotencyKey(),
                 transaction.getDescription(),
                 transaction.getStatus(),
+                transaction.getTxnDate(),
                 transaction.getCreatedAt());
     }
 }

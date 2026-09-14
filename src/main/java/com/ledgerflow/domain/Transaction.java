@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 @Entity
@@ -26,6 +27,14 @@ public class Transaction {
     @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
 
+    /**
+     * The date the transaction is effective for accounting, which is not the
+     * same fact as when the row was written. An invoice dated Friday but
+     * entered on Monday belongs in Friday's books.
+     */
+    @Column(name = "txn_date", nullable = false)
+    private LocalDate txnDate;
+
     @Column
     private String description;
 
@@ -41,6 +50,9 @@ public class Transaction {
         createdAt = OffsetDateTime.now();
         if (status == null) {
             status = TransactionStatus.POSTED;
+        }
+        if (txnDate == null) {
+            txnDate = createdAt.toLocalDate();
         }
     }
 
@@ -62,6 +74,14 @@ public class Transaction {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public LocalDate getTxnDate() {
+        return txnDate;
+    }
+
+    public void setTxnDate(LocalDate txnDate) {
+        this.txnDate = txnDate;
     }
 
     public String getDescription() {

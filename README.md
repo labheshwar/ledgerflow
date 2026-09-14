@@ -33,6 +33,16 @@ a reconciliation process against an external source of truth, and a permanent au
   and returns immediately; a separate worker compares the ledger against a simulated external
   statement feed, records per-account matches/mismatches, and marks the batch complete or
   failed, with retry and dead-letter handling if the worker dies mid-run.
+- **Money is a type, not a number** — amounts carry their currency, normalize to that
+  currency's scale (two places for USD, none for JPY), and refuse to be added across
+  currencies. Splitting is exact: five cents three ways is 2/2/1, never three parts that fail
+  to add back up.
+- **Accounting dates, not insert timestamps** — every transaction records the date it is
+  effective for the books, separately from when the row was written, so a back-dated
+  correction lands in the period it corrects.
+- **Unbalanced journal entries are unconstructable** — the double-entry check lives in the
+  constructor of the command itself, so there is no code path that can build one, pass it
+  around, and discover the problem at commit time.
 - **Concurrency safety** — every account carries an optimistic-lock version column, so two
   postings racing to update the same account can't silently clobber each other's balance.
 - **Append-only audit trail** — every posting and reconciliation result appends a row to an
@@ -359,8 +369,10 @@ This project is honest about where it's simplified, rather than hiding the gaps:
 - **Cached running total, not full event-sourcing** — account balances are a cached running
   total updated on each posting, rather than always derived by summing entries. A stricter
   design would recompute balances purely from the entry log.
-- **No currency conversion** — currency is stored per account, but converting between
-  currencies isn't implemented.
+- **No currency conversion yet** — entries already carry both the transaction amount and its
+  value in the organization's reporting currency, with the rate frozen at posting time, but
+  the only rate available is 1. Posting in a currency other than the reporting one is refused
+  outright rather than silently treated as par.
 - **Single-node Redis, RabbitMQ and Kafka** — no HA or clustering for any of them, and the
   Kafka topic is created with replication factor 1. The outbox table is the durable record;
   Kafka is treated as transport that can be replayed into.

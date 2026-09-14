@@ -38,8 +38,23 @@ public class Entry {
     @Column(name = "entry_type", nullable = false, length = 6)
     private EntryType entryType;
 
+    /** In the currency the transaction was denominated in. */
     @Column(nullable = false)
     private BigDecimal amount;
+
+    @Column(nullable = false, length = 3)
+    private String currency;
+
+    /**
+     * The same value in the organization's reporting currency, converted at
+     * fxRate. Frozen at posting time, so a report covering last year does not
+     * change its answer every time today's exchange rate moves.
+     */
+    @Column(name = "base_amount", nullable = false)
+    private BigDecimal baseAmount;
+
+    @Column(name = "fx_rate", nullable = false)
+    private BigDecimal fxRate;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -91,6 +106,30 @@ public class Entry {
 
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
+    public BigDecimal getBaseAmount() {
+        return baseAmount;
+    }
+
+    public void setBaseAmount(BigDecimal baseAmount) {
+        this.baseAmount = baseAmount;
+    }
+
+    public BigDecimal getFxRate() {
+        return fxRate;
+    }
+
+    public void setFxRate(BigDecimal fxRate) {
+        this.fxRate = fxRate;
     }
 
     public OffsetDateTime getCreatedAt() {

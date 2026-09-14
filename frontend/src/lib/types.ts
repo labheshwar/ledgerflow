@@ -38,6 +38,9 @@ export interface TransactionListItem {
   idempotencyKey: string
   description: string | null
   status: TransactionStatus
+  /** The accounting date: what the books count this under. */
+  txnDate: string
+  /** When the row was written, which is a different fact. */
   createdAt: string
 }
 
@@ -46,6 +49,8 @@ export interface TransactionEntry {
   accountName: string
   direction: EntryDirection
   amount: number
+  currency: string
+  baseAmount: number
 }
 
 export interface TransactionDetail extends TransactionListItem {

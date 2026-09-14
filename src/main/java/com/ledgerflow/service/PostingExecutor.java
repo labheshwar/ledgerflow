@@ -7,6 +7,8 @@ import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.events.LedgerTopics;
 import com.ledgerflow.events.TransactionPostedEvent;
 import com.ledgerflow.exception.AccountNotFoundException;
+import com.ledgerflow.money.CurrencyMismatchException;
+import com.ledgerflow.money.Money;
 import com.ledgerflow.outbox.OutboxRecorder;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.EntryRepository;
@@ -32,6 +34,7 @@ class PostingExecutor {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final EntryRepository entryRepository;
+    private final OrganizationService organizationService;
     private final AuditService auditService;
     private final BalanceCacheEvictor balanceCacheEvictor;
     private final OutboxRecorder outboxRecorder;
@@ -40,12 +43,14 @@ class PostingExecutor {
             AccountRepository accountRepository,
             TransactionRepository transactionRepository,
             EntryRepository entryRepository,
+            OrganizationService organizationService,
             AuditService auditService,
             BalanceCacheEvictor balanceCacheEvictor,
             OutboxRecorder outboxRecorder) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.entryRepository = entryRepository;
+        this.organizationService = organizationService;
         this.auditService = auditService;
         this.balanceCacheEvictor = balanceCacheEvictor;
         this.outboxRecorder = outboxRecorder;
@@ -54,20 +59,30 @@ class PostingExecutor {
     @Transactional
     Transaction execute(PostingCommand command) {
         Long orgId = TenantContext.require();
+        String baseCurrency = organizationService.baseCurrency();
         Map<Long, Account> accountsById = loadAccounts(command);
 
         Transaction transaction = new Transaction();
         transaction.setOrgId(orgId);
         transaction.setIdempotencyKey(command.idempotencyKey());
         transaction.setDescription(command.description());
+        transaction.setTxnDate(command.txnDate());
         transaction = transactionRepository.save(transaction);
 
         List<TransactionPostedEvent.Line> eventLines = new ArrayList<>(command.entries().size());
 
         for (EntryLine line : command.entries()) {
             Account account = accountsById.get(line.accountId());
+            Money amount = line.amount();
+            requireAccountCurrency(account, amount);
+
+            BigDecimal fxRate = rateToBase(amount.currency(), baseCurrency);
+            Money baseAmount = amount.convertedTo(baseCurrency, fxRate);
+
             BigDecimal balanceBefore = account.getBalance();
-            BigDecimal delta = line.entryType() == EntryType.DEBIT ? line.amount() : line.amount().negate();
+            BigDecimal delta = line.entryType() == EntryType.DEBIT
+                    ? amount.amount()
+                    : amount.amount().negate();
             account.setBalance(balanceBefore.add(delta));
 
             Entry entry = new Entry();
@@ -75,7 +90,10 @@ class PostingExecutor {
             entry.setTransaction(transaction);
             entry.setAccount(account);
             entry.setEntryType(line.entryType());
-            entry.setAmount(line.amount());
+            entry.setAmount(amount.amount());
+            entry.setCurrency(amount.currency());
+            entry.setBaseAmount(baseAmount.amount());
+            entry.setFxRate(fxRate);
             entryRepository.save(entry);
 
             auditService.record(
@@ -84,7 +102,12 @@ class PostingExecutor {
                     Map.of("balance", account.getBalance()));
 
             eventLines.add(new TransactionPostedEvent.Line(
-                    account.getId(), account.getName(), line.entryType().name(), line.amount()));
+                    account.getId(),
+                    account.getName(),
+                    line.entryType().name(),
+                    amount.amount(),
+                    amount.currency(),
+                    baseAmount.amount()));
         }
 
         auditService.record(
@@ -108,12 +131,40 @@ class PostingExecutor {
                         transaction.getId(),
                         transaction.getIdempotencyKey(),
                         transaction.getDescription(),
+                        transaction.getTxnDate(),
                         transaction.getCreatedAt(),
+                        command.currency(),
+                        baseCurrency,
                         eventLines));
 
         accountsById.keySet().forEach(accountId -> balanceCacheEvictor.evictAfterCommit(orgId, accountId));
 
         return transaction;
+    }
+
+    /**
+     * An entry has to be denominated in the currency of the account it hits.
+     * A euro line on a dollar bank account is not a conversion, it is a
+     * mistake -- the account represents a real balance held in one currency.
+     */
+    private void requireAccountCurrency(Account account, Money amount) {
+        if (!account.getCurrency().equalsIgnoreCase(amount.currency())) {
+            throw new CurrencyMismatchException(account.getCurrency(), amount.currency());
+        }
+    }
+
+    /**
+     * Until the rates table lands (milestone 15) the only rate available is
+     * the identity one. Refusing loudly is better than defaulting to 1 and
+     * quietly reporting euros as though they were dollars.
+     */
+    private BigDecimal rateToBase(String currency, String baseCurrency) {
+        if (currency.equalsIgnoreCase(baseCurrency)) {
+            return BigDecimal.ONE;
+        }
+        throw new UnsupportedOperationException(
+                "Posting %s into an organization reporting in %s needs an exchange rate, which is not implemented yet"
+                        .formatted(currency, baseCurrency));
     }
 
     /**

@@ -6,14 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.domain.AuditLog;
-import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.AuditLogRepository;
-import com.ledgerflow.service.EntryLine;
+import com.ledgerflow.money.Money;
+import com.ledgerflow.service.JournalBuilder;
 import com.ledgerflow.service.PostingCommand;
 import com.ledgerflow.service.PostingService;
-import java.math.BigDecimal;
-import java.util.List;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,12 +50,12 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
         Account debitAccount = newAccount("IT Debit Account");
         Account creditAccount = newAccount("IT Credit Account");
 
-        PostingCommand command = new PostingCommand(
-                "it-posting-" + UUID.randomUUID(),
-                "integration test posting",
-                List.of(
-                        new EntryLine(debitAccount.getId(), EntryType.DEBIT, new BigDecimal("40.00")),
-                        new EntryLine(creditAccount.getId(), EntryType.CREDIT, new BigDecimal("40.00"))));
+        PostingCommand command = JournalBuilder.forDate(LocalDate.now(ZoneOffset.UTC))
+                .withIdempotencyKey("it-posting-" + UUID.randomUUID())
+                .describedAs("integration test posting")
+                .debit(debitAccount.getId(), Money.of("40.00", "USD"))
+                .credit(creditAccount.getId(), Money.of("40.00", "USD"))
+                .build();
 
         postingService.post(command);
 
@@ -81,11 +81,13 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
     void transactionsIdempotencyKeyIsUniqueAtTheDatabaseLevel() {
         String key = "it-unique-" + UUID.randomUUID();
         jdbcTemplate.update(
-                "INSERT INTO transactions (org_id, idempotency_key, description, status) VALUES (?, ?, ?, ?)",
+                "INSERT INTO transactions (org_id, idempotency_key, description, status, txn_date)"
+                        + " VALUES (?, ?, ?, ?, current_date)",
                 DEMO_ORG_ID, key, "first", "POSTED");
 
         assertThatThrownBy(() -> jdbcTemplate.update(
-                        "INSERT INTO transactions (org_id, idempotency_key, description, status) VALUES (?, ?, ?, ?)",
+                        "INSERT INTO transactions (org_id, idempotency_key, description, status, txn_date)"
+                                + " VALUES (?, ?, ?, ?, current_date)",
                         DEMO_ORG_ID, key, "second", "POSTED"))
                 .isInstanceOf(DataAccessException.class);
     }

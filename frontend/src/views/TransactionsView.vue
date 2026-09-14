@@ -8,7 +8,7 @@ import EmptyState from '@/components/feedback/EmptyState.vue'
 import PageState from '@/components/feedback/PageState.vue'
 import AppShell from '@/layouts/AppShell.vue'
 import { listTransactions, transactionKeys } from '@/lib/api/transactions'
-import { formatDateTime } from '@/lib/format'
+import { formatDate, formatDateTime } from '@/lib/format'
 import type { TransactionListItem } from '@/lib/types'
 import { useAuthStore } from '@/stores/auth'
 import { useListQuery } from '@/composables/useListQuery'
@@ -17,11 +17,15 @@ const COLUMNS: Column[] = [
   { key: 'id', label: 'Reference', sortBy: 'idempotencyKey', class: 'mono' },
   { key: 'description', label: 'Description', sortBy: 'description' },
   { key: 'status', label: 'Status', sortBy: 'status' },
-  { key: 'createdAt', label: 'Posted at', sortBy: 'createdAt', class: 'mono' },
+  // The accounting date, not the insert timestamp -- a back-dated
+  // correction belongs in the period it corrects, and sorting by when the
+  // row happened to be written would bury it at the end of the list.
+  { key: 'txnDate', label: 'Date', sortBy: 'txnDate', class: 'mono' },
+  { key: 'createdAt', label: 'Entered', sortBy: 'createdAt', class: 'mono' },
 ]
 
 const auth = useAuthStore()
-const { state, params, qInput, setPage, setSort } = useListQuery({ defaultSort: 'createdAt,desc' })
+const { state, params, qInput, setPage, setSort } = useListQuery({ defaultSort: 'txnDate,desc' })
 
 const { data, isPending, error } = useQuery({
   queryKey: computed(() => transactionKeys.list(params.value)),
@@ -71,6 +75,10 @@ const { data, isPending, error } = useQuery({
           <template #cell:status="{ row }">
             <span class="pill pill-green">{{ row.status }}</span>
           </template>
+          <template #cell:txnDate="{ row }">
+            <span>{{ formatDate(row.txnDate) }}</span>
+          </template>
+
           <template #cell:createdAt="{ row }">
             <span style="color: var(--ink-soft)">{{ formatDateTime(row.createdAt) }}</span>
           </template>

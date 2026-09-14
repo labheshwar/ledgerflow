@@ -34,16 +34,14 @@ public class BalanceService {
     }
 
     /**
-     * The account only stores the current total, not a snapshot after each
-     * entry, so the running balance is folded here by replaying every entry
-     * in posting order -- the same DEBIT-adds/CREDIT-subtracts rule
-     * PostingExecutor applies when it updates the live balance. Returned
-     * newest-first, matching how a ledger statement reads.
+     * The running balance is folded here by replaying every entry in
+     * accounting order -- the same DEBIT-adds/CREDIT-subtracts rule applied
+     * at posting time. Returned newest-first, matching how a statement reads.
      */
     public List<LedgerEntry> getLedgerEntries(Long accountId) {
         getAccount(accountId); // 404s if the account doesn't exist
 
-        List<Entry> ascending = entryRepository.findByAccountIdOrderByCreatedAtAsc(accountId);
+        List<Entry> ascending = entryRepository.findForLedger(accountId);
 
         BigDecimal runningBalance = BigDecimal.ZERO;
         List<LedgerEntry> newestFirst = new ArrayList<>(ascending.size());
@@ -56,6 +54,7 @@ public class BalanceService {
                     entry.getEntryType(),
                     entry.getAmount(),
                     runningBalance,
+                    entry.getTransaction().getTxnDate(),
                     entry.getCreatedAt()));
         }
         Collections.reverse(newestFirst);

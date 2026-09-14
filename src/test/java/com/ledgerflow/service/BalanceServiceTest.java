@@ -13,6 +13,7 @@ import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.EntryRepository;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -42,11 +43,11 @@ class BalanceServiceTest {
     void foldsEntriesIntoRunningBalanceNewestFirst() {
         Account account = account(1L);
         when(accountRepository.findById(1L)).thenReturn(Optional.of(account));
-        when(entryRepository.findByAccountIdOrderByCreatedAtAsc(1L))
+        when(entryRepository.findForLedger(1L))
                 .thenReturn(List.of(
-                        entry(10L, 100L, EntryType.DEBIT, new BigDecimal("100.00")),
-                        entry(11L, 101L, EntryType.CREDIT, new BigDecimal("30.00")),
-                        entry(12L, 102L, EntryType.DEBIT, new BigDecimal("5.00"))));
+                        entry(10L, 100L, EntryType.DEBIT, new BigDecimal("100.00"), LocalDate.of(2026, 3, 1)),
+                        entry(11L, 101L, EntryType.CREDIT, new BigDecimal("30.00"), LocalDate.of(2026, 3, 2)),
+                        entry(12L, 102L, EntryType.DEBIT, new BigDecimal("5.00"), LocalDate.of(2026, 3, 3))));
 
         List<LedgerEntry> entries = balanceService.getLedgerEntries(1L);
 
@@ -54,13 +55,14 @@ class BalanceServiceTest {
         assertThat(entries.get(0).runningBalance()).isEqualByComparingTo("75.00");
         assertThat(entries.get(1).runningBalance()).isEqualByComparingTo("70.00");
         assertThat(entries.get(2).runningBalance()).isEqualByComparingTo("100.00");
+        assertThat(entries.get(0).txnDate()).isEqualTo(LocalDate.of(2026, 3, 3));
     }
 
     @Test
     void returnsEmptyListWhenAccountHasNoEntries() {
         Account account = account(1L);
         when(accountRepository.findById(1L)).thenReturn(Optional.of(account));
-        when(entryRepository.findByAccountIdOrderByCreatedAtAsc(1L)).thenReturn(List.of());
+        when(entryRepository.findForLedger(1L)).thenReturn(List.of());
 
         assertThat(balanceService.getLedgerEntries(1L)).isEmpty();
     }
@@ -79,9 +81,10 @@ class BalanceServiceTest {
         return account;
     }
 
-    private static Entry entry(Long id, Long transactionId, EntryType type, BigDecimal amount) {
+    private static Entry entry(Long id, Long transactionId, EntryType type, BigDecimal amount, LocalDate txnDate) {
         Transaction transaction = new Transaction();
         setField(transaction, "id", transactionId);
+        transaction.setTxnDate(txnDate);
 
         Entry entry = new Entry();
         setField(entry, "id", id);

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
-import { directionPillClass, formatDateTime, formatMoney } from '../lib/format'
+import { directionPillClass, formatDate, formatDateTime, formatMoney } from '../lib/format'
 import type { TransactionDetail } from '../lib/types'
 
 const route = useRoute()
@@ -52,7 +52,7 @@ const totalCredit = computed(
           <div class="slip">
             <div class="slip-head">
               <div class="ref mono">TXN-{{ transaction.id }}</div>
-              <div class="when">{{ formatDateTime(transaction.createdAt) }}</div>
+              <div class="when">{{ formatDate(transaction.txnDate) }}</div>
             </div>
             <div class="row-head">
               <div>Account</div>
@@ -85,7 +85,8 @@ const totalCredit = computed(
             <span class="k">Description</span><span>{{ transaction.description || '—' }}</span>
           </div>
           <div class="meta-row">
-            <span class="k">Posted at</span><span class="v">{{ formatDateTime(transaction.createdAt) }}</span>
+            <span class="k">Date</span><span class="v">{{ formatDate(transaction.txnDate) }}</span>
+            <span class="k">Entered</span><span class="v">{{ formatDateTime(transaction.createdAt) }}</span>
           </div>
         </div>
       </div>
