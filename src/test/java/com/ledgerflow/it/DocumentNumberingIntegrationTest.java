@@ -42,10 +42,19 @@ class DocumentNumberingIntegrationTest extends AbstractIntegrationTest {
     private PlatformTransactionManager transactionManager;
 
     private final JdbcTemplate owner = ownerJdbc();
-    private final TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+    /**
+     * A fresh template per call rather than a field built at construction:
+     * {@code transactionManager} is only populated by {@code @Autowired}
+     * after every field initializer has already run, so building this once
+     * as a field would capture it while still null.
+     */
+    private TransactionTemplate tx() {
+        return new TransactionTemplate(transactionManager);
+    }
 
     private String draw(DocumentType type) {
-        return tx.execute(status -> documentNumberingService.next(type));
+        return tx().execute(status -> documentNumberingService.next(type));
     }
 
     @Test
@@ -90,7 +99,7 @@ class DocumentNumberingIntegrationTest extends AbstractIntegrationTest {
         String before = draw(DocumentType.INVOICE);
         int beforeNumber = Integer.parseInt(before.substring(4));
 
-        assertThatThrownBy(() -> tx.execute(status -> {
+        assertThatThrownBy(() -> tx().execute(status -> {
                     // Standing in for "the document failed to save after its
                     // number was drawn" -- the increment and the failure
                     // share this one transaction, exactly as they would with
