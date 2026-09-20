@@ -18,7 +18,7 @@ const router = createRouter({
     {
       path: '/transactions/new',
       name: 'post-transaction',
-      component: () => import('../views/PostTransactionView.vue'),
+      component: () => import('../views/PostJournalView.vue'),
     },
     {
       path: '/transactions/:id',
@@ -36,6 +36,7 @@ const router = createRouter({
       component: () => import('../views/BatchDetailView.vue'),
     },
     { path: '/audit-log', name: 'audit-log', component: () => import('../views/AuditLogView.vue') },
+    { path: '/periods', name: 'periods', component: () => import('../views/PeriodsView.vue') },
   ],
 })
 

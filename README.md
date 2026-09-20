@@ -52,6 +52,21 @@ a reconciliation process against an external source of truth, and a permanent au
   Accounts are archived, never deleted, once anything has been posted to them.
 - **Concurrency safety** — every account carries an optimistic-lock version column, so two
   postings racing to update the same account can't silently clobber each other's balance.
+- **Reversal, not deletion** — a posted transaction is never edited or deleted; it is reversed
+  by a mirror entry with every direction swapped, linked back to the original by
+  `reversal_of_transaction_id`. Whether a transaction has been reversed is derived by looking
+  for one that points back at it, the same derived-not-stored principle balances already
+  follow — there is no status flag on the original to fall out of sync. Reversing the same
+  transaction twice returns the original reversal rather than posting a second one.
+- **Accounting periods with database-enforced locking** — a period marks a date range closed
+  to new postings. The check runs twice: once in the application, for a clear error message,
+  and once as a `BEFORE INSERT` trigger in Postgres itself, so a raw SQL insert that bypasses
+  the app entirely is still refused. Periods for one organization cannot overlap — enforced by
+  a `gist` exclusion constraint, not a query the application has to remember to run first.
+- **Year-end close** — zeroes every revenue and expense account as of a date and moves the net
+  result to Retained Earnings in one balanced journal, derived entirely from account balances
+  rather than tracked separately. Closing the same year twice returns the original closing
+  journal instead of moving the same income into equity a second time.
 - **Append-only audit trail** — every posting and reconciliation result appends a row to an
   audit log with before/after snapshots. Nothing is ever overwritten; the database itself
   rejects `UPDATE`/`DELETE` on that table.
@@ -242,6 +257,48 @@ The trigger call returns immediately (`202 Accepted`, status `PENDING`); the bat
 `COMPLETED` shortly after, once the reconciliation worker has consumed the message and recorded
 a `MATCHED`/`MISMATCHED` result per account.
 
+Reverse a transaction (posts the mirror entry, dated today by default):
+
+```bash
+curl -s -X POST http://localhost:8080/transactions/1/reverse \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason": "entered against the wrong account"}'
+```
+
+Reversing the same transaction again returns the original reversal rather than posting a
+second one. `GET /transactions/{id}` on either side of the pair reports the link:
+`reversalOfTransactionId` on the reversal, `reversedByTransactionId` on the original.
+
+Open and close an accounting period, then watch the database refuse a posting dated inside it:
+
+```bash
+curl -s -X POST http://localhost:8080/periods \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"startDate": "2026-01-01", "endDate": "2026-12-31"}'
+
+curl -s -X POST http://localhost:8080/periods/1/close -H "Authorization: Bearer $TOKEN"
+
+# Refused with code PERIOD_CLOSED -- txnDate falls inside the period just closed.
+curl -s -X POST http://localhost:8080/transactions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"idempotencyKey": "demo-2", "txnDate": "2026-06-15", "entries": [
+    {"accountId": 1, "entryType": "DEBIT", "amount": 10.00},
+    {"accountId": 3, "entryType": "CREDIT", "amount": 10.00}
+  ]}'
+```
+
+Close the fiscal year — zeroes revenue and expense, moves the net to Retained Earnings:
+
+```bash
+curl -s -X POST http://localhost:8080/periods/close-year \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"asOfDate": "2026-12-31"}'
+```
+
+Calling it again for the same date returns the original closing journal — the same
+idempotency-key lookup every other posting gets, so a retried close never double-counts
+income into equity.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -312,7 +369,9 @@ Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVA
 `INVALID_REQUEST`, `CURRENCY_MISMATCH`, `NOT_IMPLEMENTED`, `ACCOUNT_NOT_POSTABLE`,
 `ACCOUNT_ARCHIVED`, `INTERNAL_ERROR`, plus the chart of accounts' own rules — `DUPLICATE_CODE`,
 `INVALID_PARENT`, `ACCOUNT_IN_USE`, `SYSTEM_ACCOUNT`, `HAS_CHILDREN`, `MISSING_SYSTEM_ACCOUNT`,
-`INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`.
+`INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`, and periods/closing's own —
+`PERIOD_CLOSED`, `OVERLAPPING_PERIOD`, `ALREADY_CLOSED`, `NOT_CLOSED`, `INVALID_PERIOD`,
+`NOTHING_TO_CLOSE`.
 
 ### Watching the event stream
 
@@ -371,9 +430,9 @@ from the endpoints already described (accounts, transactions, reconciliation, au
 nothing is mocked. `ADMIN` sees posting/reconciliation controls; `VIEWER` gets the same pages
 read-only.
 
-Deliberately left out, matching gaps in the API itself: transaction reversal, CSV export, and
-per-discrepancy resolution — the reconciliation model here compares whole account balances, not
-individual bank-line items.
+Deliberately left out, matching gaps in the API itself: CSV export and per-discrepancy
+resolution — the reconciliation model here compares whole account balances, not individual
+bank-line items.
 
 In Docker, it's served by nginx at `http://localhost:8081`, with `/api/*` proxied to the `app`
 service (no CORS configuration needed since the browser only ever talks to one origin). For

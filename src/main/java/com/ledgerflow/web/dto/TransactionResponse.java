@@ -11,6 +11,8 @@ public record TransactionResponse(
         String description,
         TransactionStatus status,
         LocalDate txnDate,
+        /** The transaction this one undoes, or null for an ordinary posting. */
+        Long reversalOfTransactionId,
         OffsetDateTime createdAt) {
 
     public static TransactionResponse from(Transaction transaction) {
@@ -20,6 +22,7 @@ public record TransactionResponse(
                 transaction.getDescription(),
                 transaction.getStatus(),
                 transaction.getTxnDate(),
+                transaction.getReversalOfTransactionId(),
                 transaction.getCreatedAt());
     }
 }

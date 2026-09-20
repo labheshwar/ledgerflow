@@ -7,12 +7,14 @@ import com.ledgerflow.money.Money;
 import com.ledgerflow.service.JournalBuilder;
 import com.ledgerflow.service.OrganizationService;
 import com.ledgerflow.service.PostingService;
+import com.ledgerflow.service.ReversalService;
 import com.ledgerflow.service.TransactionService;
+import com.ledgerflow.web.dto.EntryRequest;
 import com.ledgerflow.web.dto.PagedResponse;
 import com.ledgerflow.web.dto.PostTransactionRequest;
+import com.ledgerflow.web.dto.ReverseTransactionRequest;
 import com.ledgerflow.web.dto.TransactionDetailResponse;
 import com.ledgerflow.web.dto.TransactionResponse;
-import com.ledgerflow.web.dto.EntryRequest;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -41,16 +43,19 @@ public class TransactionController {
     private final PostingService postingService;
     private final OrganizationService organizationService;
     private final TransactionService transactionService;
+    private final ReversalService reversalService;
     private final TransactionRepository transactionRepository;
 
     public TransactionController(
             PostingService postingService,
             OrganizationService organizationService,
             TransactionService transactionService,
+            ReversalService reversalService,
             TransactionRepository transactionRepository) {
         this.postingService = postingService;
         this.organizationService = organizationService;
         this.transactionService = transactionService;
+        this.reversalService = reversalService;
         this.transactionRepository = transactionRepository;
     }
 
@@ -91,6 +96,22 @@ public class TransactionController {
     @GetMapping("/{id}")
     public TransactionDetailResponse getTransaction(@PathVariable Long id) {
         Transaction transaction = transactionService.getTransaction(id);
-        return TransactionDetailResponse.from(transaction, transactionService.getEntries(id));
+        return TransactionDetailResponse.from(
+                transaction,
+                transactionService.getEntries(id),
+                transactionService.reversedBy(id).orElse(null));
+    }
+
+    /**
+     * Posts the mirror image of an existing transaction: same accounts and
+     * amounts, every DEBIT and CREDIT swapped. Idempotent on the original's
+     * id -- reversing the same transaction twice returns the first reversal.
+     */
+    @PostMapping("/{id}/reverse")
+    @ResponseStatus(HttpStatus.CREATED)
+    public TransactionResponse reverse(@PathVariable Long id, @Valid @RequestBody(required = false) ReverseTransactionRequest request) {
+        ReverseTransactionRequest body = request != null ? request : new ReverseTransactionRequest(null, null);
+        Transaction reversal = reversalService.reverse(id, body.reversalDate(), body.reason());
+        return TransactionResponse.from(reversal);
     }
 }

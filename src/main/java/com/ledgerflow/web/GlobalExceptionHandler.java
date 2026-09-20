@@ -2,6 +2,7 @@ package com.ledgerflow.web;
 
 import com.ledgerflow.exception.AccountNotFoundException;
 import com.ledgerflow.exception.ChartOfAccountsException;
+import com.ledgerflow.exception.PeriodException;
 import com.ledgerflow.exception.UnbalancedTransactionException;
 import com.ledgerflow.money.CurrencyMismatchException;
 import com.ledgerflow.web.dto.ErrorResponse;
@@ -28,11 +29,6 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * An entry denominated in a currency the account is not held in. A
-     * client mistake, not a server one -- the request describes something
-     * that cannot exist.
-     */
-    /**
      * A change the chart of accounts' own rules forbid. The exception carries
      * which rule, so the client can say "that code is taken" rather than
      * rendering a generic failure.
@@ -42,6 +38,17 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
     }
 
+    /** A period, or a posting into one, that the period's own rules forbid -- same shape as above. */
+    @ExceptionHandler(PeriodException.class)
+    public ResponseEntity<ErrorResponse> handlePeriod(PeriodException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
+    /**
+     * An entry denominated in a currency the account is not held in. A
+     * client mistake, not a server one -- the request describes something
+     * that cannot exist.
+     */
     @ExceptionHandler(CurrencyMismatchException.class)
     public ResponseEntity<ErrorResponse> handleCurrencyMismatch(CurrencyMismatchException e) {
         return error(HttpStatus.BAD_REQUEST, "CURRENCY_MISMATCH", e.getMessage());

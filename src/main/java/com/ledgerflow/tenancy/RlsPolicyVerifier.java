@@ -33,7 +33,8 @@ public class RlsPolicyVerifier implements ApplicationRunner {
             "reconciliation_batches",
             "reconciliation_results",
             "outbox_event",
-            "account_balance_snapshots");
+            "account_balance_snapshots",
+            "accounting_periods");
 
     private final JdbcTemplate jdbcTemplate;
 

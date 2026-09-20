@@ -78,6 +78,8 @@ export interface TransactionListItem {
   status: TransactionStatus
   /** The accounting date: what the books count this under. */
   txnDate: string
+  /** The transaction this one undoes, or null for an ordinary posting. */
+  reversalOfTransactionId: number | null
   /** When the row was written, which is a different fact. */
   createdAt: string
 }
@@ -92,7 +94,23 @@ export interface TransactionEntry {
 }
 
 export interface TransactionDetail extends TransactionListItem {
+  /**
+   * The transaction that undoes this one, or null if it never has been.
+   * Derived server-side by looking for a row pointing back here, not a
+   * status flag stored on this one.
+   */
+  reversedByTransactionId: number | null
   entries: TransactionEntry[]
+}
+
+export type PeriodStatus = 'OPEN' | 'CLOSED'
+
+export interface AccountingPeriod {
+  id: number
+  startDate: string
+  endDate: string
+  status: PeriodStatus
+  closedAt: string | null
 }
 
 export interface ReconciliationResult {

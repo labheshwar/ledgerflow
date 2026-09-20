@@ -2,26 +2,33 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
-import { apiFetch } from '../lib/api'
+import { getTransaction, reverseTransaction } from '../lib/api/transactions'
 import { directionPillClass, formatDate, formatDateTime, formatMoney } from '../lib/format'
+import { ApiError } from '../lib/http'
 import type { TransactionDetail } from '../lib/types'
+import { useAuthStore } from '../stores/auth'
+import { useToastStore } from '../stores/toast'
 
 const route = useRoute()
+const auth = useAuthStore()
+const toasts = useToastStore()
 const transactionId = computed(() => route.params.id as string)
 
 const transaction = ref<TransactionDetail | null>(null)
 const loading = ref(true)
 const errorText = ref('')
 
-onMounted(async () => {
+async function load() {
   try {
-    transaction.value = await apiFetch<TransactionDetail>(`/transactions/${transactionId.value}`)
+    transaction.value = await getTransaction(transactionId.value)
   } catch {
     errorText.value = 'Unable to load this transaction.'
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(load)
 
 const totalDebit = computed(
   () =>
@@ -31,6 +38,31 @@ const totalCredit = computed(
   () =>
     transaction.value?.entries.filter((e) => e.direction === 'CREDIT').reduce((s, e) => s + e.amount, 0) ?? 0,
 )
+
+// --- reversal ---
+const reversing = ref(false)
+const reason = ref('')
+const reverseError = ref('')
+const submittingReverse = ref(false)
+
+async function submitReversal() {
+  if (!transaction.value) return
+  submittingReverse.value = true
+  reverseError.value = ''
+  try {
+    const created = await reverseTransaction(transaction.value.id, { reason: reason.value.trim() || null })
+    reversing.value = false
+    reason.value = ''
+    toasts.success(`Reversal posted as TXN-${created.id}`)
+    await load()
+  } catch (e) {
+    // A closed period on the reversal's own date surfaces here with the
+    // backend's own message -- there is nothing this form needs to add.
+    reverseError.value = e instanceof ApiError ? e.message : 'Unable to reverse this transaction.'
+  } finally {
+    submittingReverse.value = false
+  }
+}
 </script>
 
 <template>
@@ -38,14 +70,58 @@ const totalCredit = computed(
     <template #title>
       <template v-if="transaction">
         TXN-{{ transaction.id }} <span class="pill pill-green">{{ transaction.status }}</span>
+        <span v-if="transaction.reversalOfTransactionId" class="pill pill-neutral">reversal</span>
+        <span v-if="transaction.reversedByTransactionId" class="pill pill-amber">reversed</span>
       </template>
       <template v-else>Transaction</template>
     </template>
     <template #sub><RouterLink to="/transactions">← Back to transactions</RouterLink></template>
+    <template #actions>
+      <button
+        v-if="auth.isAdmin && transaction && !transaction.reversedByTransactionId && !reversing"
+        type="button"
+        class="btn"
+        @click="reversing = true"
+      >
+        Reverse
+      </button>
+    </template>
 
     <p v-if="loading">Loading…</p>
     <p v-else-if="errorText" class="field-error">{{ errorText }}</p>
     <template v-else-if="transaction">
+      <div v-if="reversing" class="reverse-card">
+        <div class="field" style="margin-bottom: 10px">
+          <label>Reason (optional)</label>
+          <input v-model="reason" class="input" placeholder="Why is this being reversed?" />
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button class="btn btn-primary" type="button" :disabled="submittingReverse" @click="submitReversal">
+            {{ submittingReverse ? 'Posting…' : 'Post the mirror entry, dated today' }}
+          </button>
+          <button class="btn" type="button" @click="reversing = false">Cancel</button>
+        </div>
+        <div v-if="reverseError" class="field-error" style="margin-top: 10px">{{ reverseError }}</div>
+      </div>
+
+      <div
+        v-if="transaction.reversalOfTransactionId || transaction.reversedByTransactionId"
+        class="link-note"
+      >
+        <template v-if="transaction.reversalOfTransactionId">
+          This is the reversal of
+          <RouterLink :to="`/transactions/${transaction.reversalOfTransactionId}`"
+            >TXN-{{ transaction.reversalOfTransactionId }}</RouterLink
+          >.
+        </template>
+        <template v-if="transaction.reversedByTransactionId">
+          Reversed by
+          <RouterLink :to="`/transactions/${transaction.reversedByTransactionId}`"
+            >TXN-{{ transaction.reversedByTransactionId }}</RouterLink
+          >.
+        </template>
+      </div>
+
       <div class="layout">
         <div class="card">
           <h2>Ledger slip</h2>
@@ -112,6 +188,18 @@ const totalCredit = computed(
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 14px;
+}
+.reverse-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.link-note {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-bottom: 16px;
 }
 .slip {
   border: 1px dashed var(--line);

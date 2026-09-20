@@ -5,6 +5,7 @@ import com.ledgerflow.domain.SystemAccountRole;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -124,6 +125,55 @@ public class AccountBalanceQueries {
                 MAPPER);
 
         return new PageImpl<>(rows, pageable, total == null ? 0 : total);
+    }
+
+    /**
+     * Every postable revenue and expense account with a non-zero balance as
+     * of {@code asOfDate}, for the year-end close.
+     *
+     * A dedicated query rather than the shared "as of now" join, because
+     * closing needs the answer as of a specific date -- typically the last
+     * day of a fiscal year that has since ended -- not whatever the balance
+     * happens to be today. The snapshot lookup is bounded by that same date
+     * for the same reason: a snapshot taken after asOfDate would otherwise
+     * be picked as the newest one and silently include entries the close is
+     * not supposed to see yet.
+     *
+     * Headings are excluded by construction, not filtered out afterwards --
+     * an account that cannot be posted to always has a balance of exactly
+     * zero, which the "non-zero" filter already removes.
+     */
+    public List<AccountWithBalance> findPostableRevenueAndExpenseAsOf(LocalDate asOfDate) {
+        String sql =
+                """
+                SELECT a.id, a.code, a.name, a.description, a.type, a.currency,
+                       a.parent_id, a.system_role, a.is_postable, a.archived_at,
+                       a.created_at, a.updated_at,
+                       COALESCE(s.balance, 0) + COALESCE(d.delta, 0) AS balance,
+                       COALESCE(s.base_balance, 0) + COALESCE(d.base_delta, 0) AS base_balance
+                FROM accounts a
+                LEFT JOIN LATERAL (
+                    SELECT sn.as_of_date, sn.balance, sn.base_balance
+                    FROM account_balance_snapshots sn
+                    WHERE sn.account_id = a.id AND sn.as_of_date <= :asOfDate
+                    ORDER BY sn.as_of_date DESC
+                    LIMIT 1
+                ) s ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        SUM(CASE WHEN e.entry_type = 'DEBIT' THEN  e.amount ELSE -e.amount END) AS delta,
+                        SUM(CASE WHEN e.entry_type = 'DEBIT' THEN  e.base_amount ELSE -e.base_amount END) AS base_delta
+                    FROM entries e
+                    JOIN transactions t ON t.id = e.transaction_id
+                    WHERE e.account_id = a.id
+                      AND t.txn_date <= :asOfDate
+                      AND (s.as_of_date IS NULL OR t.txn_date > s.as_of_date)
+                ) d ON TRUE
+                WHERE a.type IN ('REVENUE', 'EXPENSE')
+                  AND a.is_postable = TRUE
+                  AND (COALESCE(s.balance, 0) + COALESCE(d.delta, 0)) <> 0
+                """;
+        return jdbc.query(sql, new MapSqlParameterSource("asOfDate", asOfDate), MAPPER);
     }
 
     public long count() {

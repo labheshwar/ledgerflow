@@ -11,7 +11,15 @@ export interface TransactionListParams {
 export interface PostTransactionRequest {
   idempotencyKey: string
   description: string | null
+  /** Omit for today. */
+  txnDate?: string | null
   entries: { accountId: number | null; entryType: string; amount: number }[]
+}
+
+export interface ReverseTransactionRequest {
+  /** Omit for today. */
+  reversalDate?: string | null
+  reason?: string | null
 }
 
 export const transactionKeys = {
@@ -30,6 +38,14 @@ export function getTransaction(id: string | number, signal?: AbortSignal) {
 
 export function postTransaction(body: PostTransactionRequest) {
   return apiFetch<{ id: number }>('/transactions', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/** Posts the mirror image of an existing transaction -- see ReversalService on the backend. */
+export function reverseTransaction(id: string | number, body: ReverseTransactionRequest) {
+  return apiFetch<{ id: number }>(`/transactions/${id}/reverse`, {
     method: 'POST',
     body: JSON.stringify(body),
   })

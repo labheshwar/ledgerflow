@@ -36,6 +36,7 @@ class PostingExecutor {
     private final TransactionRepository transactionRepository;
     private final EntryRepository entryRepository;
     private final OrganizationService organizationService;
+    private final PeriodService periodService;
     private final AuditService auditService;
     private final OutboxRecorder outboxRecorder;
 
@@ -44,12 +45,14 @@ class PostingExecutor {
             TransactionRepository transactionRepository,
             EntryRepository entryRepository,
             OrganizationService organizationService,
+            PeriodService periodService,
             AuditService auditService,
             OutboxRecorder outboxRecorder) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.entryRepository = entryRepository;
         this.organizationService = organizationService;
+        this.periodService = periodService;
         this.auditService = auditService;
         this.outboxRecorder = outboxRecorder;
     }
@@ -58,6 +61,10 @@ class PostingExecutor {
     Transaction execute(PostingCommand command) {
         Long orgId = TenantContext.require();
         String baseCurrency = organizationService.baseCurrency();
+        // Checked before touching any account or entry: a closed period
+        // means nothing in this journal should be written at all, not that
+        // it should be written and then discovered invalid partway through.
+        periodService.assertOpen(command.txnDate());
         Map<Long, Account> accountsById = loadAccounts(command);
 
         Transaction transaction = new Transaction();
@@ -65,6 +72,7 @@ class PostingExecutor {
         transaction.setIdempotencyKey(command.idempotencyKey());
         transaction.setDescription(command.description());
         transaction.setTxnDate(command.txnDate());
+        transaction.setReversalOfTransactionId(command.reversalOfTransactionId());
         transaction = transactionRepository.save(transaction);
 
         List<TransactionPostedEvent.Line> eventLines = new ArrayList<>(command.entries().size());

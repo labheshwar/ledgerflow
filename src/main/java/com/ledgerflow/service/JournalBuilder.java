@@ -32,6 +32,7 @@ public final class JournalBuilder {
     private final List<EntryLine> lines = new ArrayList<>();
     private String description;
     private String idempotencyKey;
+    private Long reversalOfTransactionId;
 
     private JournalBuilder(LocalDate txnDate) {
         this.txnDate = Objects.requireNonNull(txnDate, "txnDate");
@@ -48,6 +49,12 @@ public final class JournalBuilder {
 
     public JournalBuilder withIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+        return this;
+    }
+
+    /** Marks this journal as undoing {@code originalTransactionId}. */
+    public JournalBuilder reversing(Long originalTransactionId) {
+        this.reversalOfTransactionId = Objects.requireNonNull(originalTransactionId, "originalTransactionId");
         return this;
     }
 
@@ -69,6 +76,6 @@ public final class JournalBuilder {
      *         assembled entry does not satisfy double entry.
      */
     public PostingCommand build() {
-        return new PostingCommand(idempotencyKey, description, txnDate, lines);
+        return new PostingCommand(idempotencyKey, description, txnDate, lines, reversalOfTransactionId);
     }
 }

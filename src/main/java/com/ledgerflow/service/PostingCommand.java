@@ -22,8 +22,21 @@ import java.util.Objects;
  *
  * @param txnDate the date the entry is effective for accounting, supplied by
  *        the caller -- routinely not today.
+ * @param reversalOfTransactionId the transaction this journal undoes, or
+ *        null for an ordinary posting. Not part of the balance invariant --
+ *        a reversal has to balance for exactly the same reason any other
+ *        journal does, no special case needed.
  */
-public record PostingCommand(String idempotencyKey, String description, LocalDate txnDate, List<EntryLine> entries) {
+public record PostingCommand(
+        String idempotencyKey,
+        String description,
+        LocalDate txnDate,
+        List<EntryLine> entries,
+        Long reversalOfTransactionId) {
+
+    public PostingCommand(String idempotencyKey, String description, LocalDate txnDate, List<EntryLine> entries) {
+        this(idempotencyKey, description, txnDate, entries, null);
+    }
 
     public PostingCommand {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {

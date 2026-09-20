@@ -13,6 +13,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 
 /**
  * Real Postgres, Redis, RabbitMQ and Kafka, started once and shared across every
@@ -70,8 +71,16 @@ public abstract class AbstractIntegrationTest {
     static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3-management-alpine")
             .withStartupTimeout(Duration.ofMinutes(5));
 
+    /**
+     * The default wait strategy probes the mapped host port from outside the
+     * container; on this host that probe itself can hang well past any
+     * reasonable timeout even though Redis is listening within a second, as
+     * its own log line below proves. Waiting on the log line instead of the
+     * external port avoids that broken probe entirely.
+     */
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine")
             .withExposedPorts(6379)
+            .waitingFor(Wait.forLogMessage(".*Ready to accept connections tcp.*\\n", 1))
             .withStartupTimeout(Duration.ofMinutes(2));
 
     /** Single-node KRaft, configured exactly as the compose stack is. */

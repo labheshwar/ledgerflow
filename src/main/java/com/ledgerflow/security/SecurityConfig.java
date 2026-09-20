@@ -52,7 +52,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/signup").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/transactions").hasRole("ADMIN")
+                        // "/transactions/**" rather than the bare path, so
+                        // posting a reversal at /transactions/{id}/reverse
+                        // needs ADMIN exactly as posting the original did.
+                        .requestMatchers(HttpMethod.POST, "/transactions/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/reconciliation/**").hasRole("ADMIN")
                         // Editing the chart of accounts changes how every
                         // figure in the business is classified, so it is an
@@ -60,6 +63,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/accounts/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/accounts/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/accounts/**").hasRole("ADMIN")
+                        // Locking a period or posting the year-end close
+                        // changes what every past figure is allowed to mean.
+                        .requestMatchers(HttpMethod.POST, "/periods/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

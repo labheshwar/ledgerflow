@@ -52,6 +52,11 @@ const navItems = [
     path: '<path d="M3 5.2h8"></path><path d="M8.2 2.4l2.8 2.8-2.8 2.8"></path><path d="M13 10.8H5"></path><path d="M7.8 13.6L5 10.8l2.8-2.8"></path>',
   },
   {
+    to: '/periods',
+    label: 'Periods',
+    path: '<rect x="3" y="7" width="10" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path>',
+  },
+  {
     to: '/reconciliation',
     label: 'Reconciliation',
     path: '<circle cx="8" cy="8" r="6"></circle><path d="M5.3 8.2l1.8 1.8L10.7 6"></path>',

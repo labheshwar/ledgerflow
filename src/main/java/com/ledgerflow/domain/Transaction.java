@@ -38,6 +38,18 @@ public class Transaction {
     @Column
     private String description;
 
+    /**
+     * The transaction this one undoes, or null for an ordinary posting.
+     *
+     * Whether the *original* has been reversed is deliberately not a column
+     * on that row -- it is answered by looking for a transaction whose
+     * reversalOfTransactionId points back at it. A status flag would be a
+     * second place for that fact to live, and the two could disagree; a
+     * pointer that only the reversal itself carries cannot.
+     */
+    @Column(name = "reversal_of_transaction_id")
+    private Long reversalOfTransactionId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private TransactionStatus status;
@@ -90,6 +102,14 @@ public class Transaction {
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public Long getReversalOfTransactionId() {
+        return reversalOfTransactionId;
+    }
+
+    public void setReversalOfTransactionId(Long reversalOfTransactionId) {
+        this.reversalOfTransactionId = reversalOfTransactionId;
     }
 
     public TransactionStatus getStatus() {

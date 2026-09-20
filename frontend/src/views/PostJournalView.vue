@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
-import { ApiError, apiFetch } from '../lib/api'
-import { formatMoney } from '../lib/format'
-import type { Account, EntryDirection, Paged, TransactionDetail } from '../lib/types'
+import { getAccountTree } from '../lib/api/accounts'
+import { getTransaction, postTransaction } from '../lib/api/transactions'
+import { formatDate, formatMoney } from '../lib/format'
+import { ApiError } from '../lib/http'
+import { computeJournalBalance, isAmountValid } from '../lib/journal-balance'
+import type { Account, AccountNode, EntryDirection, TransactionDetail } from '../lib/types'
 
 interface DraftEntry {
   id: number
@@ -19,6 +22,13 @@ function genIdempotencyKey(): string {
   return s
 }
 
+function flattenPostable(nodes: AccountNode[]): Account[] {
+  return nodes.flatMap((node) => [
+    ...(node.account.postable && !node.account.archived ? [node.account] : []),
+    ...flattenPostable(node.children),
+  ])
+}
+
 const accounts = ref<Account[]>([])
 const accountsLoaded = ref(false)
 
@@ -28,6 +38,7 @@ const entries = reactive<DraftEntry[]>([
   { id: 2, accountId: null, direction: 'CREDIT', amount: '' },
 ])
 const description = ref('')
+const txnDate = ref(new Date().toISOString().slice(0, 10))
 const idempotencyKey = ref(genIdempotencyKey())
 
 const touchedAmounts = ref(false)
@@ -41,7 +52,10 @@ const lastPosted = ref<TransactionDetail | null>(null)
 
 onMounted(async () => {
   try {
-    accounts.value = (await apiFetch<Paged<Account>>('/accounts?size=200')).content
+    // Headings and archived accounts are excluded here rather than merely
+    // rejected on submit -- an account that cannot receive an entry should
+    // not be offered as though it could.
+    accounts.value = flattenPostable(await getAccountTree(false))
     if (accounts.value.length > 0) {
       entries[0].accountId = accounts.value[0].id
       entries[1].accountId = accounts.value[1]?.id ?? accounts.value[0].id
@@ -56,11 +70,6 @@ function regenerateKey() {
   touchedIdemp.value = false
 }
 
-function isAmountValid(amount: string): boolean {
-  const v = parseFloat(amount)
-  return amount.trim().length > 0 && !isNaN(v) && v > 0
-}
-
 function addEntry() {
   entries.push({ id: nextId++, accountId: accounts.value[0]?.id ?? null, direction: 'DEBIT', amount: '' })
 }
@@ -70,14 +79,7 @@ function removeEntry(id: number) {
   if (idx !== -1) entries.splice(idx, 1)
 }
 
-const totalDebit = computed(() =>
-  entries.filter((e) => e.direction === 'DEBIT').reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
-)
-const totalCredit = computed(() =>
-  entries.filter((e) => e.direction === 'CREDIT').reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
-)
-const difference = computed(() => Math.round((totalDebit.value - totalCredit.value) * 100) / 100)
-const balanced = computed(() => difference.value === 0 && totalDebit.value > 0)
+const balance = computed(() => computeJournalBalance(entries))
 
 const showAmountErrors = computed(() => touchedAmounts.value || submitAttempted.value)
 const allAmountsValid = computed(() => entries.every((e) => isAmountValid(e.amount)))
@@ -88,14 +90,14 @@ const idempValid = computed(() => idempotencyKey.value.trim().length > 0)
 const allAccountsSelected = computed(() => entries.every((e) => e.accountId != null))
 
 const canSubmit = computed(
-  () => balanced.value && allAmountsValid.value && idempValid.value && allAccountsSelected.value,
+  () => balance.value.balanced && allAmountsValid.value && idempValid.value && allAccountsSelected.value,
 )
 
 const statusText = computed(() => {
   if (showAmountErrors.value && !allAmountsValid.value) return 'Fix the highlighted amounts before posting'
   if (showIdempError.value) return 'Idempotency key is required'
-  if (balanced.value) return 'Balanced — ready to post'
-  if (totalDebit.value === 0 && totalCredit.value === 0) return 'Enter amounts to begin'
+  if (balance.value.balanced) return 'Balanced — ready to post'
+  if (balance.value.totalDebit === 0 && balance.value.totalCredit === 0) return 'Enter amounts to begin'
   return 'Unbalanced — debits must equal credits'
 })
 
@@ -108,22 +110,24 @@ async function submit() {
   submitting.value = true
   errorText.value = ''
   try {
-    const created = await apiFetch<{ id: number }>('/transactions', {
-      method: 'POST',
-      body: JSON.stringify({
-        idempotencyKey: idempotencyKey.value,
-        description: description.value.trim() || null,
-        entries: entries.map((e) => ({
-          accountId: e.accountId,
-          entryType: e.direction,
-          amount: parseFloat(e.amount),
-        })),
-      }),
+    const created = await postTransaction({
+      idempotencyKey: idempotencyKey.value,
+      description: description.value.trim() || null,
+      txnDate: txnDate.value || null,
+      entries: entries.map((e) => ({
+        accountId: e.accountId,
+        entryType: e.direction,
+        amount: parseFloat(e.amount),
+      })),
     })
-    lastPosted.value = await apiFetch<TransactionDetail>(`/transactions/${created.id}`)
+    lastPosted.value = await getTransaction(created.id)
     posted.value = true
   } catch (e) {
-    errorText.value = e instanceof ApiError ? e.message : 'Unable to post this transaction.'
+    // A closed period surfaces here with the backend's own PERIOD_CLOSED
+    // message, in the same errorText slot as any other posting failure --
+    // there is nothing period-specific for this form to say that the
+    // server has not already said better.
+    errorText.value = e instanceof ApiError ? e.message : 'Unable to post this journal entry.'
   } finally {
     submitting.value = false
   }
@@ -133,6 +137,7 @@ function startNew() {
   posted.value = false
   lastPosted.value = null
   description.value = ''
+  txnDate.value = new Date().toISOString().slice(0, 10)
   idempotencyKey.value = genIdempotencyKey()
   touchedAmounts.value = false
   touchedIdemp.value = false
@@ -153,7 +158,7 @@ function startNew() {
 
 <template>
   <AppShell>
-    <template #title>Post transaction</template>
+    <template #title>Post journal entry</template>
     <template #sub>Every entry must balance to zero before it can be submitted</template>
 
     <p v-if="!accountsLoaded">Loading…</p>
@@ -161,9 +166,15 @@ function startNew() {
       <div class="layout">
         <div class="card">
           <h2>Entries</h2>
-          <div class="field" style="margin-bottom: 16px">
-            <label>Description (optional)</label>
-            <input v-model="description" class="input" placeholder="What is this transaction for?" />
+          <div class="fieldrow">
+            <div class="field">
+              <label>Date</label>
+              <input v-model="txnDate" type="date" class="input" />
+            </div>
+            <div class="field" style="flex: 1">
+              <label>Description (optional)</label>
+              <input v-model="description" class="input" placeholder="What is this entry for?" />
+            </div>
           </div>
 
           <div class="row-head">
@@ -174,12 +185,13 @@ function startNew() {
           </div>
           <div v-for="row in entries" :key="row.id" class="entry-row">
             <select v-model.number="row.accountId" class="input">
-              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.code }} · {{ a.name }}</option>
             </select>
             <div class="dirseg">
               <button
                 :class="{ on: row.direction === 'DEBIT' }"
                 class="debit"
+                type="button"
                 @click="row.direction = 'DEBIT'"
               >
                 DR
@@ -187,6 +199,7 @@ function startNew() {
               <button
                 :class="{ on: row.direction === 'CREDIT' }"
                 class="credit"
+                type="button"
                 @click="row.direction = 'CREDIT'"
               >
                 CR
@@ -199,13 +212,15 @@ function startNew() {
               placeholder="0.00"
               @input="touchedAmounts = true"
             />
-            <button class="rm" :disabled="entries.length <= 2" @click="removeEntry(row.id)">×</button>
+            <button class="rm" type="button" :disabled="entries.length <= 2" @click="removeEntry(row.id)">
+              ×
+            </button>
           </div>
           <div v-if="showAmountErrors && !allAmountsValid" class="row-error">
             Every entry needs an amount greater than zero.
           </div>
 
-          <button class="addrow" @click="addEntry">+ Add entry</button>
+          <button class="addrow" type="button" @click="addEntry">+ Add entry</button>
 
           <div class="idemp">
             <label>Idempotency key</label>
@@ -225,19 +240,19 @@ function startNew() {
         <div class="card balancecard">
           <h2>Balance check</h2>
           <div class="num-row">
-            <span>Total debits</span><span class="v">{{ formatMoney(totalDebit) }}</span>
+            <span>Total debits</span><span class="v">{{ formatMoney(balance.totalDebit) }}</span>
           </div>
           <div class="num-row">
-            <span>Total credits</span><span class="v">{{ formatMoney(totalCredit) }}</span>
+            <span>Total credits</span><span class="v">{{ formatMoney(balance.totalCredit) }}</span>
           </div>
           <hr />
           <div class="num-row">
-            <span>Difference</span><span class="v">{{ formatMoney(Math.abs(difference)) }}</span>
+            <span>Difference</span><span class="v">{{ formatMoney(Math.abs(balance.difference)) }}</span>
           </div>
           <div :class="['status', canSubmit ? 'ok' : 'bad']">{{ statusText }}</div>
           <div v-if="errorText" class="field-error" style="margin-top: 10px">{{ errorText }}</div>
-          <button class="submit" :disabled="!canSubmit || submitting" @click="submit">
-            {{ submitting ? 'Posting…' : 'Post transaction' }}
+          <button class="submit" type="button" :disabled="!canSubmit || submitting" @click="submit">
+            {{ submitting ? 'Posting…' : 'Post journal entry' }}
           </button>
         </div>
       </div>
@@ -249,12 +264,15 @@ function startNew() {
           <div class="tick">
             <svg viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9"></path></svg>
           </div>
-          <h2>Transaction posted</h2>
+          <h2>Journal entry posted</h2>
           <div style="font-size: 12.5px; color: var(--ink-soft); margin-bottom: 14px">
             Written atomically · audit log updated
           </div>
           <div class="receipt-row">
             <span>Reference</span><span class="mono">TXN-{{ lastPosted.id }}</span>
+          </div>
+          <div class="receipt-row">
+            <span>Date</span><span class="mono">{{ formatDate(lastPosted.txnDate) }}</span>
           </div>
           <div class="receipt-row">
             <span>Idempotency key</span><span class="mono">{{ lastPosted.idempotencyKey }}</span>
@@ -269,7 +287,7 @@ function startNew() {
                 e.direction
               }}</span></span
             >
-            <span class="mono">{{ formatMoney(e.amount) }}</span>
+            <span class="mono">{{ formatMoney(e.amount, e.currency) }}</span>
           </div>
           <RouterLink
             class="newbtn"
@@ -278,14 +296,14 @@ function startNew() {
           >
             View transaction
           </RouterLink>
-          <button class="newbtn" @click="startNew">Post another transaction</button>
+          <button class="newbtn" type="button" @click="startNew">Post another entry</button>
         </div>
         <div class="card">
           <h2>What just happened</h2>
           <div style="font-size: 12.5px; color: var(--ink-soft); line-height: 1.6">
-            The idempotency key was checked first — no existing transaction matched it, so the entries were
-            validated (debits = credits), written inside one transaction, and each account's Redis balance key
-            was invalidated.
+            The idempotency key was checked first — no existing transaction matched it — then the entries were
+            validated (debits = credits) and confirmed against the accounting period covering the date above,
+            and written inside one database transaction.
           </div>
         </div>
       </div>
@@ -311,6 +329,14 @@ function startNew() {
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 14px;
+}
+.fieldrow {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.fieldrow .field:first-child {
+  flex: 0 0 160px;
 }
 .row-head {
   display: grid;

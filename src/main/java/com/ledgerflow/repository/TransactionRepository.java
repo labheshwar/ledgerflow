@@ -16,6 +16,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     Optional<Transaction> findByIdempotencyKey(String idempotencyKey);
 
+    /**
+     * Whether a transaction has been reversed is deliberately not a column
+     * on the transaction itself -- see Transaction.reversalOfTransactionId --
+     * so this lookup, not a status flag, is the answer.
+     */
+    Optional<Transaction> findByReversalOfTransactionId(Long transactionId);
+
     List<Transaction> findAllByOrderByCreatedAtDesc();
 
     long countByCreatedAtAfter(OffsetDateTime createdAt);

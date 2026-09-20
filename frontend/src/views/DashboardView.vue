@@ -34,10 +34,11 @@ onMounted(async () => {
 <template>
   <AppShell>
     <template #title>Dashboard</template>
-    <template #sub>Ledger overview · all figures in PKR</template>
+    <template #sub>Ledger overview · all figures in USD</template>
     <template #actions>
       <template v-if="auth.isAdmin">
-        <RouterLink class="btn" to="/transactions/new">Post transaction</RouterLink>
+        <RouterLink class="btn" to="/transactions/new">Post journal entry</RouterLink>
+        <RouterLink class="btn" to="/periods">Periods</RouterLink>
         <RouterLink class="btn" to="/reconciliation">Run reconciliation</RouterLink>
       </template>
       <RouterLink class="btn btn-primary" to="/accounts">View accounts</RouterLink>

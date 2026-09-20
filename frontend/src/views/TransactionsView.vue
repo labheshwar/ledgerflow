@@ -41,7 +41,7 @@ const { data, isPending, error } = useQuery({
     </template>
     <template #actions>
       <RouterLink v-if="auth.isAdmin" class="btn btn-primary" to="/transactions/new">
-        Post transaction
+        Post journal entry
       </RouterLink>
     </template>
 
