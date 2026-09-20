@@ -157,3 +157,47 @@ export interface DashboardSummary {
   postingsToday: number
   latestReconciliation: ReconciliationBatch | null
 }
+
+/** BOTH exists because plenty of small businesses buy from and sell to the same party. */
+export type ContactType = 'CUSTOMER' | 'VENDOR' | 'BOTH'
+
+export interface Contact {
+  id: number
+  type: ContactType
+  name: string
+  email: string | null
+  phone: string | null
+  taxId: string | null
+  addressLine1: string | null
+  addressLine2: string | null
+  city: string | null
+  state: string | null
+  postalCode: string | null
+  country: string | null
+  notes: string | null
+  archived: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TaxRate {
+  id: number
+  name: string
+  /** A percentage, e.g. 15 for 15% -- never a fraction. */
+  rate: number
+  archived: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Item {
+  id: number
+  sku: string | null
+  name: string
+  description: string | null
+  defaultUnitPrice: number | null
+  defaultTaxRateId: number | null
+  archived: boolean
+  createdAt: string
+  updatedAt: string
+}

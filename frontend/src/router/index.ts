@@ -37,6 +37,9 @@ const router = createRouter({
     },
     { path: '/audit-log', name: 'audit-log', component: () => import('../views/AuditLogView.vue') },
     { path: '/periods', name: 'periods', component: () => import('../views/PeriodsView.vue') },
+    { path: '/contacts', name: 'contacts', component: () => import('../views/ContactsView.vue') },
+    { path: '/tax-rates', name: 'tax-rates', component: () => import('../views/TaxRatesView.vue') },
+    { path: '/items', name: 'items', component: () => import('../views/ItemsView.vue') },
   ],
 })
 

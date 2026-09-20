@@ -66,6 +66,17 @@ public class SecurityConfig {
                         // Locking a period or posting the year-end close
                         // changes what every past figure is allowed to mean.
                         .requestMatchers(HttpMethod.POST, "/periods/**").hasRole("ADMIN")
+                        // Reference data an invoice or bill will point at --
+                        // reading it is everyone's job, editing it is not.
+                        .requestMatchers(HttpMethod.POST, "/contacts/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/contacts/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/contacts/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/tax-rates/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/tax-rates/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/tax-rates/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/items/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/items/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/items/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

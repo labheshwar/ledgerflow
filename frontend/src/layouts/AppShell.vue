@@ -57,6 +57,21 @@ const navItems = [
     path: '<rect x="3" y="7" width="10" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path>',
   },
   {
+    to: '/contacts',
+    label: 'Contacts',
+    path: '<circle cx="8" cy="5.5" r="2.5"></circle><path d="M3 14c0-2.8 2.2-5 5-5s5 2.2 5 5"></path>',
+  },
+  {
+    to: '/items',
+    label: 'Items',
+    path: '<path d="M8 2.5l5 2.6v5.8l-5 2.6-5-2.6V5.1z"></path><path d="M3 5.1l5 2.6 5-2.6"></path><path d="M8 7.7v5.8"></path>',
+  },
+  {
+    to: '/tax-rates',
+    label: 'Tax rates',
+    path: '<path d="M11.3 2.7l2 2-8 8-3 1 1-3z"></path><path d="M9.8 4.2l2 2"></path>',
+  },
+  {
     to: '/reconciliation',
     label: 'Reconciliation',
     path: '<circle cx="8" cy="8" r="6"></circle><path d="M5.3 8.2l1.8 1.8L10.7 6"></path>',

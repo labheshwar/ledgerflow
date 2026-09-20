@@ -2,6 +2,7 @@ package com.ledgerflow.web;
 
 import com.ledgerflow.exception.AccountNotFoundException;
 import com.ledgerflow.exception.ChartOfAccountsException;
+import com.ledgerflow.exception.MasterDataException;
 import com.ledgerflow.exception.PeriodException;
 import com.ledgerflow.exception.UnbalancedTransactionException;
 import com.ledgerflow.money.CurrencyMismatchException;
@@ -41,6 +42,12 @@ public class GlobalExceptionHandler {
     /** A period, or a posting into one, that the period's own rules forbid -- same shape as above. */
     @ExceptionHandler(PeriodException.class)
     public ResponseEntity<ErrorResponse> handlePeriod(PeriodException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
+    /** A contact, tax rate or item that its own validation forbids -- same shape as above. */
+    @ExceptionHandler(MasterDataException.class)
+    public ResponseEntity<ErrorResponse> handleMasterData(MasterDataException e) {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
     }
 

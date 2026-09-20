@@ -77,6 +77,15 @@ a reconciliation process against an external source of truth, and a permanent au
 - **Web and worker are the same image, different profiles** — the HTTP tier consumes no
   queues, drains no outbox and runs no scheduled jobs, so the two can be scaled on completely
   different signals.
+- **Contacts, tax rates and items** — the reference data an invoice or bill will point at from
+  the next milestone on: customers and vendors (a contact can be both), tax rates as a plain
+  percentage, and a catalog of things sold or bought. Archived, never deleted, the moment
+  anything else can reference one.
+- **Gapless document numbering** — the next invoice or bill number is drawn with a single
+  atomic `INSERT … ON CONFLICT … DO UPDATE … RETURNING`, one counter per organization per
+  document type, never a Postgres `SEQUENCE`. A sequence advances even when the transaction
+  that read it rolls back; this counter's increment shares whatever transaction is creating the
+  document, so a number is never spent on something that never actually saved.
 
 ## Architecture
 ```mermaid
@@ -299,6 +308,27 @@ Calling it again for the same date returns the original closing journal — the 
 idempotency-key lookup every other posting gets, so a retried close never double-counts
 income into equity.
 
+Set up a customer, a tax rate, and an item that references it:
+
+```bash
+curl -s -X POST http://localhost:8080/contacts \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"type": "CUSTOMER", "name": "Acme Widgets", "email": "billing@acme.test"}'
+
+TAX_RATE_ID=$(curl -s -X POST http://localhost:8080/tax-rates \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "Standard VAT", "rate": 15}' | sed -E 's/.*"id":([0-9]+).*/\1/')
+
+curl -s -X POST http://localhost:8080/items \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name": "Consulting hour", "defaultUnitPrice": 100.00, "defaultTaxRateId": '"$TAX_RATE_ID"'}'
+```
+
+Every list endpoint here (`/contacts`, `/tax-rates`, `/items`) follows the same paging, sorting
+and search rules as `/accounts`, plus `includeArchived=true` to see what has been retired.
+Reading them needs no role; creating, editing, archiving or deleting one needs `ADMIN`, exactly
+like the chart of accounts.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -369,9 +399,11 @@ Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVA
 `INVALID_REQUEST`, `CURRENCY_MISMATCH`, `NOT_IMPLEMENTED`, `ACCOUNT_NOT_POSTABLE`,
 `ACCOUNT_ARCHIVED`, `INTERNAL_ERROR`, plus the chart of accounts' own rules — `DUPLICATE_CODE`,
 `INVALID_PARENT`, `ACCOUNT_IN_USE`, `SYSTEM_ACCOUNT`, `HAS_CHILDREN`, `MISSING_SYSTEM_ACCOUNT`,
-`INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`, and periods/closing's own —
+`INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`, periods/closing's own —
 `PERIOD_CLOSED`, `OVERLAPPING_PERIOD`, `ALREADY_CLOSED`, `NOT_CLOSED`, `INVALID_PERIOD`,
-`NOTHING_TO_CLOSE`.
+`NOTHING_TO_CLOSE` — and contacts/tax-rates/items' own — `INVALID_RATE`, `DUPLICATE_SKU`,
+`INVALID_PRICE`, `INVALID_TAX_RATE` (`INVALID_NAME` and `INVALID_TYPE` above are shared with
+these too).
 
 ### Watching the event stream
 
@@ -426,9 +458,9 @@ so you can read the contract before you have a token.
 
 A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the
 original design mockups. It's a thin client over the API above — every page reads real data
-from the endpoints already described (accounts, transactions, reconciliation, audit log) and
-nothing is mocked. `ADMIN` sees posting/reconciliation controls; `VIEWER` gets the same pages
-read-only.
+from the endpoints already described (accounts, transactions, contacts, tax rates, items,
+reconciliation, audit log) and nothing is mocked. `ADMIN` sees posting/reconciliation/editing
+controls; `VIEWER` gets the same pages read-only.
 
 Deliberately left out, matching gaps in the API itself: CSV export and per-discrepancy
 resolution — the reconciliation model here compares whole account balances, not individual
@@ -475,6 +507,9 @@ This project is honest about where it's simplified, rather than hiding the gaps:
 - **Single-node Redis, RabbitMQ and Kafka** — no HA or clustering for any of them, and the
   Kafka topic is created with replication factor 1. The outbox table is the durable record;
   Kafka is treated as transport that can be replayed into.
+- **Document numbering has no document yet** — the gapless counter behind invoice and bill
+  numbers is built and tested on its own, ahead of either one existing to draw from it. It gets
+  its first real caller when invoicing lands.
 
 These are the natural next steps, not oversights being hidden.
 
