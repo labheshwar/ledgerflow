@@ -97,6 +97,7 @@ class PostingIntegrationTest extends AbstractIntegrationTest {
 
     private Account newAccount(String name) {
         Account account = new Account();
+        account.setCode("T" + UUID.randomUUID().toString().substring(0, 8));
         account.setName(name);
         account.setCurrency("USD");
         account.setOrgId(DEMO_ORG_ID);

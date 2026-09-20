@@ -1,6 +1,7 @@
 package com.ledgerflow.repository;
 
 import com.ledgerflow.domain.AccountType;
+import com.ledgerflow.domain.SystemAccountRole;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -46,6 +47,7 @@ public class AccountBalanceQueries {
      * is the second gate.
      */
     private static final Map<String, String> SORTABLE = Map.of(
+            "code", "a.code",
             "name", "a.name",
             "type", "a.type",
             "currency", "a.currency",
@@ -55,7 +57,9 @@ public class AccountBalanceQueries {
 
     private static final String SELECT_WITH_BALANCE =
             """
-            SELECT a.id, a.name, a.type, a.currency, a.created_at, a.updated_at,
+            SELECT a.id, a.code, a.name, a.description, a.type, a.currency,
+                   a.parent_id, a.system_role, a.is_postable, a.archived_at,
+                   a.created_at, a.updated_at,
                    %s AS balance,
                    %s AS base_balance
             FROM accounts a
@@ -81,6 +85,11 @@ public class AccountBalanceQueries {
 
     public List<AccountWithBalance> findAllOrderedByName() {
         return jdbc.query(SELECT_WITH_BALANCE + " ORDER BY a.name ASC", MAPPER);
+    }
+
+    /** The whole chart in code order, which is the order a trial balance reads in. */
+    public List<AccountWithBalance> findAllOrderedByCode() {
+        return jdbc.query(SELECT_WITH_BALANCE + " ORDER BY a.code ASC", MAPPER);
     }
 
     /**
@@ -165,13 +174,22 @@ public class AccountBalanceQueries {
     }
 
     private static AccountWithBalance mapRow(ResultSet rs, int rowNum) throws SQLException {
+        String role = rs.getString("system_role");
+        BigDecimal balance = rs.getBigDecimal("balance");
         return new AccountWithBalance(
                 rs.getLong("id"),
+                rs.getString("code"),
                 rs.getString("name"),
+                rs.getString("description"),
                 AccountType.valueOf(rs.getString("type")),
                 rs.getString("currency"),
-                rs.getBigDecimal("balance"),
+                (Long) rs.getObject("parent_id"),
+                role == null ? null : SystemAccountRole.valueOf(role),
+                rs.getBoolean("is_postable"),
+                rs.getObject("archived_at", OffsetDateTime.class),
+                balance,
                 rs.getBigDecimal("base_balance"),
+                balance,
                 rs.getObject("created_at", OffsetDateTime.class),
                 rs.getObject("updated_at", OffsetDateTime.class));
     }

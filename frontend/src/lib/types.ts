@@ -1,4 +1,19 @@
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'
+
+/** Accounts the application itself has to be able to find, e.g. for invoicing. */
+export type SystemAccountRole =
+  | 'CASH'
+  | 'ACCOUNTS_RECEIVABLE'
+  | 'ACCOUNTS_PAYABLE'
+  | 'OWNER_EQUITY'
+  | 'RETAINED_EARNINGS'
+  | 'SALES_REVENUE'
+  | 'TAX_PAYABLE'
+  | 'TAX_RECEIVABLE'
+  | 'FX_GAIN_LOSS'
+  | 'ROUNDING'
+  | 'CUSTOMER_PREPAYMENTS'
+
 export type EntryDirection = 'DEBIT' | 'CREDIT'
 export type TransactionStatus = 'POSTED'
 export type ReconciliationStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'
@@ -16,15 +31,33 @@ export interface Paged<T> {
 
 export interface Account {
   id: number
+  /** Unique within the organization; the stable handle a name is not. */
+  code: string
   name: string
+  description: string | null
   type: AccountType
   currency: string
+  /** The heading this account is filed under, or null at the top of the chart. */
+  parentId: number | null
+  /** What the application means by this account, if anything. */
+  systemRole: SystemAccountRole | null
+  /** False for a heading -- entries cannot be posted directly to it. */
+  postable: boolean
+  archived: boolean
   /** Derived from the entries on read, not a stored column. */
   balance: number
   /** The same amount in the organization's reporting currency. */
   baseBalance: number
+  /** This account's balance plus every descendant's -- the figure that means something for a heading. */
+  rollupBalance: number
   createdAt: string
   updatedAt: string
+}
+
+/** One account and the accounts filed under it, nested so a client can't reassemble the order wrong. */
+export interface AccountNode {
+  account: Account
+  children: AccountNode[]
 }
 
 export interface LedgerEntry {

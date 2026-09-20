@@ -54,6 +54,12 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.POST, "/transactions").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/reconciliation/**").hasRole("ADMIN")
+                        // Editing the chart of accounts changes how every
+                        // figure in the business is classified, so it is an
+                        // administrator's job. Reading it is not.
+                        .requestMatchers(HttpMethod.POST, "/accounts/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/accounts/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/accounts/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

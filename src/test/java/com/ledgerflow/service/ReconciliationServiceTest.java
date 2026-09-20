@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ledgerflow.domain.Account;
+import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.domain.ReconciliationBatch;
 import com.ledgerflow.domain.ReconciliationResult;
 import com.ledgerflow.domain.ReconciliationResultStatus;
@@ -138,7 +139,7 @@ class ReconciliationServiceTest {
     }
 
     private static AccountWithBalance account(Long id, BigDecimal balance) {
-        return new AccountWithBalance(id, "Account " + id, null, "USD", balance, balance, null, null);
+        return AccountWithBalance.of(id, "1" + id, AccountType.ASSET, balance);
     }
 
     private static ReconciliationBatch accountBatch(Long id) {

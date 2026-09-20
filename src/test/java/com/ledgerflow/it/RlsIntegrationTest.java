@@ -52,18 +52,20 @@ class RlsIntegrationTest extends AbstractIntegrationTest {
 
         otherOrgAccountId = owner.queryForObject(
                 """
-                INSERT INTO accounts (org_id, name, currency, type, version, created_at, updated_at)
-                VALUES (?, ?, 'USD', 'ASSET', 0, now(), now())
+                INSERT INTO accounts (org_id, code, name, currency, type, version, created_at, updated_at)
+                VALUES (?, ?, ?, 'USD', 'ASSET', 0, now(), now())
                 RETURNING id
                 """,
                 Long.class,
                 otherOrgId,
+                "T" + UUID.randomUUID().toString().substring(0, 8),
                 "Other Co Cash " + UUID.randomUUID());
     }
 
     @Test
     void aListQueryOnlyEverSeesTheCurrentOrganizationsRows() {
         Account mine = new Account();
+        mine.setCode("T" + UUID.randomUUID().toString().substring(0, 8));
         mine.setOrgId(DEMO_ORG_ID);
         mine.setName("RLS Demo Account " + UUID.randomUUID());
         mine.setCurrency("USD");

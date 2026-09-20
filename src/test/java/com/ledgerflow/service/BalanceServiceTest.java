@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import com.ledgerflow.domain.AccountType;
 import com.ledgerflow.domain.Entry;
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.domain.Transaction;
@@ -74,7 +75,7 @@ class BalanceServiceTest {
     }
 
     private static AccountWithBalance account(Long id) {
-        return new AccountWithBalance(id, "Account " + id, null, "USD", BigDecimal.ZERO, BigDecimal.ZERO, null, null);
+        return AccountWithBalance.of(id, "1" + id, AccountType.ASSET, BigDecimal.ZERO);
     }
 
     private static Entry entry(Long id, Long transactionId, EntryType type, BigDecimal amount, LocalDate txnDate) {

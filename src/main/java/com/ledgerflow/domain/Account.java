@@ -25,8 +25,15 @@ public class Account {
     @Column(name = "org_id", nullable = false)
     private Long orgId;
 
+    /** Unique within the organization; the stable handle a name is not. */
+    @Column(nullable = false, length = 20)
+    private String code;
+
     @Column(nullable = false)
     private String name;
+
+    @Column(length = 500)
+    private String description;
 
     @Column(nullable = false, length = 3)
     private String currency;
@@ -34,6 +41,36 @@ public class Account {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private AccountType type;
+
+    /**
+     * The parent heading, or null at the top of the chart. Held as an id
+     * rather than a @ManyToOne: the tree is read whole and assembled in
+     * memory, so an association would only invite a lazy proxy to be
+     * dereferenced somewhere the session has already closed.
+     */
+    @Column(name = "parent_id")
+    private Long parentId;
+
+    /** What the application means by this account, if anything. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "system_role", length = 40)
+    private SystemAccountRole systemRole;
+
+    /**
+     * Whether entries may land here. A heading with children beneath it
+     * cannot receive them -- its total is the sum of its children, and an
+     * entry posted directly to it would be counted twice.
+     */
+    @Column(name = "is_postable", nullable = false)
+    private boolean postable = true;
+
+    /**
+     * When it was archived, or null while active. Accounts are never deleted
+     * once posted to: the entries reference them and history has to stay
+     * explicable. Archiving removes it from pickers and nothing else.
+     */
+    @Column(name = "archived_at")
+    private OffsetDateTime archivedAt;
 
     /**
      * Still here, but no longer guarding a balance. Balances are derived from
@@ -75,12 +112,64 @@ public class Account {
         this.orgId = orgId;
     }
 
+    public String getCode() {
+        return code;
+    }
+
+    public void setCode(String code) {
+        this.code = code;
+    }
+
     public String getName() {
         return name;
     }
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Long getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(Long parentId) {
+        this.parentId = parentId;
+    }
+
+    public SystemAccountRole getSystemRole() {
+        return systemRole;
+    }
+
+    public void setSystemRole(SystemAccountRole systemRole) {
+        this.systemRole = systemRole;
+    }
+
+    public boolean isPostable() {
+        return postable;
+    }
+
+    public void setPostable(boolean postable) {
+        this.postable = postable;
+    }
+
+    public OffsetDateTime getArchivedAt() {
+        return archivedAt;
+    }
+
+    public void setArchivedAt(OffsetDateTime archivedAt) {
+        this.archivedAt = archivedAt;
+    }
+
+    public boolean isArchived() {
+        return archivedAt != null;
     }
 
     public String getCurrency() {

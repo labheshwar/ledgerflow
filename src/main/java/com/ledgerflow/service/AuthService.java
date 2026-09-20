@@ -8,24 +8,28 @@ import com.ledgerflow.repository.OrgMemberRepository;
 import com.ledgerflow.repository.OrganizationRepository;
 import com.ledgerflow.repository.UserRepository;
 import com.ledgerflow.security.JwtService;
+import com.ledgerflow.tenancy.TenantContext;
 import java.util.List;
 import java.util.NoSuchElementException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final OrganizationRepository organizationRepository;
     private final OrgMemberRepository orgMemberRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final ChartOfAccountsSeeder chartOfAccountsSeeder;
+    private final OrganizationProvisioner organizationProvisioner;
 
     public AuthService(
             AuthenticationManager authenticationManager,
@@ -33,13 +37,15 @@ public class AuthService {
             UserRepository userRepository,
             OrganizationRepository organizationRepository,
             OrgMemberRepository orgMemberRepository,
-            PasswordEncoder passwordEncoder) {
+            ChartOfAccountsSeeder chartOfAccountsSeeder,
+            OrganizationProvisioner organizationProvisioner) {
         this.authenticationManager = authenticationManager;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
         this.organizationRepository = organizationRepository;
         this.orgMemberRepository = orgMemberRepository;
-        this.passwordEncoder = passwordEncoder;
+        this.chartOfAccountsSeeder = chartOfAccountsSeeder;
+        this.organizationProvisioner = organizationProvisioner;
     }
 
     /**
@@ -72,29 +78,31 @@ public class AuthService {
         return jwtService.generateToken(username, membership.getRole(), orgId);
     }
 
-    /** Creates a user together with the organization they will administer. */
-    @Transactional
+    /**
+     * Creates a user, the organization they will administer, and the chart of
+     * accounts that organization starts with.
+     *
+     * Deliberately not one transaction. The organization has to exist and be
+     * committed before anything can act *for* it, because every write to
+     * accounts is checked against the tenant in context and there is no tenant
+     * while the organization is still being created. So the seeding runs in
+     * its own transaction, inside runAs, once there is an organization to be.
+     *
+     * If seeding fails the signup still stands: the user can sign in and the
+     * chart can be created by hand or by re-running the seeder. An
+     * organization with no accounts is an annoyance; a signup that half
+     * succeeded and left an unusable login would be worse.
+     */
     public String signUp(String username, String password, String organizationName) {
-        if (userRepository.findByUsername(username).isPresent()) {
-            throw new IllegalArgumentException("That username is already taken");
+        Long orgId = organizationProvisioner.createOrganizationWithOwner(username, password, organizationName);
+
+        try {
+            TenantContext.runAs(orgId, chartOfAccountsSeeder::seedDefaultChart);
+        } catch (RuntimeException e) {
+            log.error("Created organization {} but could not seed its chart of accounts", orgId, e);
         }
 
-        Organization organization = new Organization();
-        organization.setName(organizationName);
-        organization = organizationRepository.save(organization);
-
-        User user = new User();
-        user.setUsername(username);
-        user.setPasswordHash(passwordEncoder.encode(password));
-        user = userRepository.save(user);
-
-        OrgMember membership = new OrgMember();
-        membership.setOrgId(organization.getId());
-        membership.setUserId(user.getId());
-        membership.setRole(Role.ADMIN);
-        orgMemberRepository.save(membership);
-
-        return jwtService.generateToken(username, Role.ADMIN, organization.getId());
+        return jwtService.generateToken(username, Role.ADMIN, orgId);
     }
 
     public List<OrgMember> membershipsOf(String username) {

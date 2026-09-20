@@ -1,6 +1,7 @@
 package com.ledgerflow.web;
 
 import com.ledgerflow.exception.AccountNotFoundException;
+import com.ledgerflow.exception.ChartOfAccountsException;
 import com.ledgerflow.exception.UnbalancedTransactionException;
 import com.ledgerflow.money.CurrencyMismatchException;
 import com.ledgerflow.web.dto.ErrorResponse;
@@ -31,6 +32,16 @@ public class GlobalExceptionHandler {
      * client mistake, not a server one -- the request describes something
      * that cannot exist.
      */
+    /**
+     * A change the chart of accounts' own rules forbid. The exception carries
+     * which rule, so the client can say "that code is taken" rather than
+     * rendering a generic failure.
+     */
+    @ExceptionHandler(ChartOfAccountsException.class)
+    public ResponseEntity<ErrorResponse> handleChartOfAccounts(ChartOfAccountsException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
     @ExceptionHandler(CurrencyMismatchException.class)
     public ResponseEntity<ErrorResponse> handleCurrencyMismatch(CurrencyMismatchException e) {
         return error(HttpStatus.BAD_REQUEST, "CURRENCY_MISMATCH", e.getMessage());

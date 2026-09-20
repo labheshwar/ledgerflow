@@ -44,6 +44,12 @@ a reconciliation process against an external source of truth, and a permanent au
 - **Unbalanced journal entries are unconstructable** — the double-entry check lives in the
   constructor of the command itself, so there is no code path that can build one, pass it
   around, and discover the problem at commit time.
+- **A real chart of accounts** — accounts are coded, nest under headings, and can be marked
+  with a system role (`CASH`, `ACCOUNTS_RECEIVABLE`, …) that lets a feature find the right
+  account without asking the user or matching on a name someone is free to rename. A heading
+  cannot itself hold entries — giving an account a child automatically turns it into one — and
+  the chart tree carries a roll-up balance for every heading, computed from what is beneath it.
+  Accounts are archived, never deleted, once anything has been posted to them.
 - **Concurrency safety** — every account carries an optimistic-lock version column, so two
   postings racing to update the same account can't silently clobber each other's balance.
 - **Append-only audit trail** — every posting and reconciliation result appends a row to an
@@ -173,11 +179,14 @@ because the API owns the migrations and the worker validates its schema against 
 
 ### Demo accounts
 
-| ID | Name                 |
-|----|----------------------|
-| 1  | Cash                 |
-| 2  | Accounts Receivable  |
-| 3  | Revenue              |
+| ID | Code | Name                 | System role         |
+|----|------|----------------------|----------------------|
+| 1  | 1000 | Cash                 | `CASH`               |
+| 2  | 1100 | Accounts Receivable  | `ACCOUNTS_RECEIVABLE`|
+| 3  | 4000 | Revenue              | `SALES_REVENUE`      |
+| 4  | 2000 | Accounts Payable     | `ACCOUNTS_PAYABLE`   |
+| 5  | 3000 | Owner Equity         | `OWNER_EQUITY`       |
+| 6  | 5000 | Operating Expenses   | —                    |
 
 ## API walkthrough
 
@@ -214,6 +223,12 @@ Read the balance back (summed from the entries, through the latest snapshot):
 curl -s http://localhost:8080/accounts/1/balance -H "Authorization: Bearer $TOKEN"
 ```
 
+Read the whole chart as a tree, headings carrying the total of everything filed beneath them:
+
+```bash
+curl -s http://localhost:8080/accounts/tree -H "Authorization: Bearer $TOKEN"
+```
+
 Trigger a reconciliation and check its status once it completes:
 
 ```bash
@@ -231,8 +246,12 @@ a `MATCHED`/`MISMATCHED` result per account.
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
 organization. `POST /auth/signup` creates a user together with the organization they will
-administer; `GET /auth/me` returns the current organization and any others the user belongs to;
-`POST /auth/switch-org/{id}` re-issues a token for one of those.
+administer, and seeds it with a starter chart of accounts — a business with zero accounts
+cannot record so much as someone putting money in, and asking a non-accountant to invent one
+from nothing is asking them to get the system accounts wrong in ways that only surface once
+invoicing can't find its receivables account. Every account it seeds can be renamed, recoded,
+reparented or archived afterwards. `GET /auth/me` returns the current organization and any
+others the user belongs to; `POST /auth/switch-org/{id}` re-issues a token for one of those.
 
 The organization is a **signed claim inside the JWT**, not a header — the tenant a request acts
 for must not be something the caller can change at will, so switching organizations means
@@ -290,7 +309,10 @@ Error responses carry a stable, machine-readable `code` alongside the human-read
 
 Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVALID_SORT`,
 `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_CREDENTIALS`, `UNAUTHENTICATED`, `FORBIDDEN`,
-`INTERNAL_ERROR`.
+`INVALID_REQUEST`, `CURRENCY_MISMATCH`, `NOT_IMPLEMENTED`, `ACCOUNT_NOT_POSTABLE`,
+`ACCOUNT_ARCHIVED`, `INTERNAL_ERROR`, plus the chart of accounts' own rules — `DUPLICATE_CODE`,
+`INVALID_PARENT`, `ACCOUNT_IN_USE`, `SYSTEM_ACCOUNT`, `HAS_CHILDREN`, `MISSING_SYSTEM_ACCOUNT`,
+`INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`.
 
 ### Watching the event stream
 

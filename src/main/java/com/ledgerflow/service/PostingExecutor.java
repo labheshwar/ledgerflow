@@ -7,6 +7,7 @@ import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.events.LedgerTopics;
 import com.ledgerflow.events.TransactionPostedEvent;
 import com.ledgerflow.exception.AccountNotFoundException;
+import com.ledgerflow.exception.ChartOfAccountsException;
 import com.ledgerflow.money.CurrencyMismatchException;
 import com.ledgerflow.money.Money;
 import com.ledgerflow.outbox.OutboxRecorder;
@@ -199,6 +200,33 @@ class PostingExecutor {
             throw new AccountNotFoundException(missing);
         }
 
+        accounts.forEach(this::requireCanReceiveEntries);
         return accounts.stream().collect(Collectors.toMap(Account::getId, a -> a));
+    }
+
+    /**
+     * Two accounts cannot take an entry.
+     *
+     * A heading's balance is the sum of the accounts beneath it, so an entry
+     * posted directly to one would be counted once as its own and once again
+     * in the subtotal -- and the resulting balance sheet would be wrong by
+     * exactly that amount, with nothing to point at.
+     *
+     * An archived account was deliberately taken out of use. Posting to one
+     * resurrects it into reports that whoever archived it believes are closed.
+     */
+    private void requireCanReceiveEntries(Account account) {
+        if (!account.isPostable()) {
+            throw new ChartOfAccountsException(
+                    "ACCOUNT_NOT_POSTABLE",
+                    "%s (%s) is a heading; post to one of the accounts underneath it"
+                            .formatted(account.getName(), account.getCode()));
+        }
+        if (account.isArchived()) {
+            throw new ChartOfAccountsException(
+                    "ACCOUNT_ARCHIVED",
+                    "%s (%s) is archived and cannot be posted to"
+                            .formatted(account.getName(), account.getCode()));
+        }
     }
 }

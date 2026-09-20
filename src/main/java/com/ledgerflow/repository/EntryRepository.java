@@ -47,4 +47,7 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
      */
     @Query("SELECT e FROM Entry e JOIN FETCH e.account WHERE e.transaction.id = :transactionId")
     List<Entry> findByTransactionId(@Param("transactionId") Long transactionId);
+
+    /** Whether an account has ever been posted to, which is what freezes it. */
+    boolean existsByAccountId(Long accountId);
 }

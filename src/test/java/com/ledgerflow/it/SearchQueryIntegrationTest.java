@@ -55,6 +55,7 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
     void accountSearchRunsWithEveryCombinationOfOptionalFilters() {
         String unique = "IT Search " + UUID.randomUUID();
         Account account = new Account();
+        account.setCode("T" + UUID.randomUUID().toString().substring(0, 8));
         account.setName(unique);
         account.setCurrency("USD");
         account.setOrgId(DEMO_ORG_ID);
@@ -86,6 +87,7 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
     void accountSearchIsCaseInsensitiveAndMatchesOnSubstrings() {
         String unique = "IT MixedCase " + UUID.randomUUID();
         Account account = new Account();
+        account.setCode("T" + UUID.randomUUID().toString().substring(0, 8));
         account.setName(unique);
         account.setCurrency("USD");
         account.setOrgId(DEMO_ORG_ID);
