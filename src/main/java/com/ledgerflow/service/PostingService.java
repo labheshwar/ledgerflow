@@ -5,6 +5,7 @@ import com.ledgerflow.repository.TransactionRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Posts journal entries to the ledger.
@@ -27,7 +28,25 @@ public class PostingService {
         this.transactionRepository = transactionRepository;
     }
 
+    /**
+     * @throws IllegalStateException if called from inside an active
+     *         transaction. Retrying on {@link OptimisticLockingFailureException}
+     *         only works if each attempt gets its own transaction; a caller
+     *         that wraps this call in one of its own marks that whole
+     *         transaction rollback-only on the very first conflict, and
+     *         every retry after it then fails silently. A document service
+     *         (invoices, bills, and onward) must persist its own row in its
+     *         own transaction first, call this with none active, then write
+     *         the resulting transaction id back in a transaction of its own.
+     */
     public Transaction post(PostingCommand command) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "PostingService.post() must not be called from inside an existing transaction -- "
+                            + "see this method's own Javadoc for why, and split the caller into "
+                            + "persist, post with no transaction active, then write back.");
+        }
+
         var existing = transactionRepository.findByIdempotencyKey(command.idempotencyKey());
         if (existing.isPresent()) {
             return existing.get();

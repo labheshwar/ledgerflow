@@ -40,6 +40,13 @@ const router = createRouter({
     { path: '/contacts', name: 'contacts', component: () => import('../views/ContactsView.vue') },
     { path: '/tax-rates', name: 'tax-rates', component: () => import('../views/TaxRatesView.vue') },
     { path: '/items', name: 'items', component: () => import('../views/ItemsView.vue') },
+    { path: '/invoices', name: 'invoices', component: () => import('../views/InvoicesView.vue') },
+    { path: '/invoices/new', name: 'invoice-new', component: () => import('../views/InvoiceFormView.vue') },
+    {
+      path: '/invoices/:id',
+      name: 'invoice-detail',
+      component: () => import('../views/InvoiceDetailView.vue'),
+    },
   ],
 })
 

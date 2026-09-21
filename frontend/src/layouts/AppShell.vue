@@ -62,6 +62,11 @@ const navItems = [
     path: '<circle cx="8" cy="5.5" r="2.5"></circle><path d="M3 14c0-2.8 2.2-5 5-5s5 2.2 5 5"></path>',
   },
   {
+    to: '/invoices',
+    label: 'Invoices',
+    path: '<path d="M4 2h6l2 2v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"></path><path d="M5.5 6.5h5"></path><path d="M5.5 9h5"></path><path d="M5.5 11.5h3"></path>',
+  },
+  {
     to: '/items',
     label: 'Items',
     path: '<path d="M8 2.5l5 2.6v5.8l-5 2.6-5-2.6V5.1z"></path><path d="M3 5.1l5 2.6 5-2.6"></path><path d="M8 7.7v5.8"></path>',

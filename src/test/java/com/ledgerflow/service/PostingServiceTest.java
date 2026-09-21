@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class PostingServiceTest {
@@ -115,6 +116,23 @@ class PostingServiceTest {
         assertThat(result).isSameAs(winnersTransaction);
         verify(postingExecutor, times(1)).execute(command);
         verify(transactionRepository, times(2)).findByIdempotencyKey(IDEMPOTENCY_KEY);
+    }
+
+    @Test
+    void refusesToRunInsideAnAmbientTransaction() {
+        // Standing in for a caller that wraps post() in its own @Transactional
+        // method -- exactly the outer-transaction trap this guard exists to
+        // catch loudly instead of letting every retry fail silently.
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            assertThatThrownBy(() -> postingService.post(balancedCommand()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("must not be called from inside an existing transaction");
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+
+        verify(postingExecutor, never()).execute(any());
     }
 
     private static PostingCommand balancedCommand() {

@@ -86,6 +86,14 @@ a reconciliation process against an external source of truth, and a permanent au
   document type, never a Postgres `SEQUENCE`. A sequence advances even when the transaction
   that read it rolls back; this counter's increment shares whatever transaction is creating the
   document, so a number is never spent on something that never actually saved.
+- **Invoices** — a draft is a plan, freely edited or deleted; sending one draws a document
+  number and posts `DR Accounts Receivable / CR Sales Revenue / CR Tax Payable` as one balanced
+  journal, computed by the same totals arithmetic the UI already showed live. From there it is
+  history: undone only by voiding, which reverses the posting exactly like reversing any other
+  transaction. Sending is split into two short, separately-committed steps around the posting
+  call itself, so a crash between them cannot leave the ledger half-updated — a background
+  sweeper finds and finishes anything left in that state, safely, because the posting step is
+  idempotent.
 
 ## Architecture
 ```mermaid
@@ -142,6 +150,17 @@ disagree, with no way afterwards to tell which is right. Writing the event as a 
 transaction happened" and "the event exists" one atomic fact, at the cost of at-least-once
 delivery — a crash after a successful send but before the row is marked published will
 republish it, so consumers deduplicate on `eventId`.
+
+`PostingService.post()` retries on `OptimisticLockingFailureException`, and that only works if
+every attempt gets its own transaction. A caller that wraps the call in one of its own marks
+that whole transaction rollback-only on the first conflict, so every retry after it then fails
+silently -- a bug that only shows up under real concurrent load, long after it shipped. `post()`
+now refuses outright (`IllegalStateException`) if one is already active, and every document
+service that posts (invoices today, bills and payments next) follows the same shape because of
+it: persist the document's own row in a short transaction, call `post()` with none active, then
+write the resulting transaction id back in a transaction of its own. A crash between those two
+writes leaves the document referencing no transaction; each one's own background sweeper finds
+and finishes it, safely, because the posting call in the middle is idempotent.
 
 An account balance is not stored anywhere. It is the sum of that account's entries, computed
 when asked: the newest snapshot at or before the date, plus every entry since. Snapshots keep
@@ -329,6 +348,25 @@ and search rules as `/accounts`, plus `includeArchived=true` to see what has bee
 Reading them needs no role; creating, editing, archiving or deleting one needs `ADMIN`, exactly
 like the chart of accounts.
 
+Draft an invoice against that customer and item, then send it:
+
+```bash
+INVOICE_ID=$(curl -s -X POST http://localhost:8080/invoices \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "contactId": 1, "issueDate": "2026-09-21", "dueDate": "2026-10-21",
+    "lines": [{"description": "Consulting hour", "quantity": 5, "unitPrice": 100.00, "taxRateId": '"$TAX_RATE_ID"'}]
+  }' | sed -E 's/.*"id":([0-9]+).*/\1/')
+
+curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/send -H "Authorization: Bearer $TOKEN"
+```
+
+The response carries the drawn `invoiceNumber` (`INV-00001`) and the `postedTransactionId` of
+the journal it just became. A draft can be edited or deleted freely; once sent, neither works —
+`INVOICE_NOT_EDITABLE` — and the only way to undo it is `POST /invoices/{id}/void`, which
+reverses the posting exactly like reversing any other transaction and leaves the invoice `VOID`
+rather than gone.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -401,9 +439,11 @@ Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVA
 `INVALID_PARENT`, `ACCOUNT_IN_USE`, `SYSTEM_ACCOUNT`, `HAS_CHILDREN`, `MISSING_SYSTEM_ACCOUNT`,
 `INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`, periods/closing's own —
 `PERIOD_CLOSED`, `OVERLAPPING_PERIOD`, `ALREADY_CLOSED`, `NOT_CLOSED`, `INVALID_PERIOD`,
-`NOTHING_TO_CLOSE` — and contacts/tax-rates/items' own — `INVALID_RATE`, `DUPLICATE_SKU`,
+`NOTHING_TO_CLOSE` — contacts/tax-rates/items' own — `INVALID_RATE`, `DUPLICATE_SKU`,
 `INVALID_PRICE`, `INVALID_TAX_RATE` (`INVALID_NAME` and `INVALID_TYPE` above are shared with
-these too).
+these too) — and invoices' own — `INVOICE_NOT_EDITABLE`, `INVOICE_NOT_VOIDABLE`,
+`INVOICE_NOT_POSTED_YET`, `NOTHING_TO_INVOICE`, `NO_LINES`, `INVALID_LINE`, `INVALID_ITEM`,
+`INVALID_DUE_DATE`, `INVALID_DATE`, `CONTACT_NOT_A_CUSTOMER`.
 
 ### Watching the event stream
 
@@ -459,8 +499,8 @@ so you can read the contract before you have a token.
 A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the
 original design mockups. It's a thin client over the API above — every page reads real data
 from the endpoints already described (accounts, transactions, contacts, tax rates, items,
-reconciliation, audit log) and nothing is mocked. `ADMIN` sees posting/reconciliation/editing
-controls; `VIEWER` gets the same pages read-only.
+invoices, reconciliation, audit log) and nothing is mocked. `ADMIN` sees posting/reconciliation/
+editing controls; `VIEWER` gets the same pages read-only.
 
 Deliberately left out, matching gaps in the API itself: CSV export and per-discrepancy
 resolution — the reconciliation model here compares whole account balances, not individual
@@ -507,9 +547,12 @@ This project is honest about where it's simplified, rather than hiding the gaps:
 - **Single-node Redis, RabbitMQ and Kafka** — no HA or clustering for any of them, and the
   Kafka topic is created with replication factor 1. The outbox table is the durable record;
   Kafka is treated as transport that can be replayed into.
-- **Document numbering has no document yet** — the gapless counter behind invoice and bill
-  numbers is built and tested on its own, ahead of either one existing to draw from it. It gets
-  its first real caller when invoicing lands.
+- **Bills have no document yet** — the gapless document-numbering counter serves invoices
+  today; bills are its second caller, arriving with milestone 11.
+- **An invoice can be overdue but never paid, yet** — `overdue` is derived from `status` and
+  `dueDate` and is real today. `paid` is not derivable at all until something records a payment
+  against an invoice, which milestone 12 adds; until then every invoice's balance is either its
+  full amount or zero, on voiding.
 
 These are the natural next steps, not oversights being hidden.
 

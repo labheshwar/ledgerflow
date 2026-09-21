@@ -201,3 +201,43 @@ export interface Item {
   createdAt: string
   updatedAt: string
 }
+
+export type InvoiceStatus = 'DRAFT' | 'SENT' | 'VOID'
+
+export interface InvoiceLine {
+  id: number
+  itemId: number | null
+  description: string
+  quantity: number
+  unitPrice: number
+  taxRateId: number | null
+  /** Derived from quantity, unitPrice and the line's own tax rate -- never stored. */
+  lineSubtotal: number
+  taxAmount: number
+  lineTotal: number
+}
+
+export interface InvoiceListItem {
+  id: number
+  contactId: number
+  contactName: string
+  /** Null until sent. */
+  invoiceNumber: string | null
+  status: InvoiceStatus
+  issueDate: string
+  dueDate: string
+  currency: string
+  subtotal: number
+  taxTotal: number
+  grandTotal: number
+  postedTransactionId: number | null
+  /** Derived from status and dueDate on every read, never stored. */
+  overdue: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InvoiceDetail extends InvoiceListItem {
+  notes: string | null
+  lines: InvoiceLine[]
+}

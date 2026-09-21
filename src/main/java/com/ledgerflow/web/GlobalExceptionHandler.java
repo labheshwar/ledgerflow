@@ -2,6 +2,7 @@ package com.ledgerflow.web;
 
 import com.ledgerflow.exception.AccountNotFoundException;
 import com.ledgerflow.exception.ChartOfAccountsException;
+import com.ledgerflow.exception.InvoiceException;
 import com.ledgerflow.exception.MasterDataException;
 import com.ledgerflow.exception.PeriodException;
 import com.ledgerflow.exception.UnbalancedTransactionException;
@@ -48,6 +49,12 @@ public class GlobalExceptionHandler {
     /** A contact, tax rate or item that its own validation forbids -- same shape as above. */
     @ExceptionHandler(MasterDataException.class)
     public ResponseEntity<ErrorResponse> handleMasterData(MasterDataException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
+    /** An invoice, or a transition of one, that its own rules forbid -- same shape as above. */
+    @ExceptionHandler(InvoiceException.class)
+    public ResponseEntity<ErrorResponse> handleInvoice(InvoiceException e) {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
     }
 

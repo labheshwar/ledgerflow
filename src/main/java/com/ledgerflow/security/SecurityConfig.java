@@ -77,6 +77,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/items/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/items/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/items/**").hasRole("ADMIN")
+                        // Creating, sending or voiding an invoice moves real
+                        // money through the ledger; reading one does not.
+                        .requestMatchers(HttpMethod.POST, "/invoices/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/invoices/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/invoices/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

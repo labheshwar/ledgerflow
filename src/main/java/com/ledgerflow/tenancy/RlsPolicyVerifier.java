@@ -38,7 +38,9 @@ public class RlsPolicyVerifier implements ApplicationRunner {
             "contacts",
             "tax_rates",
             "items",
-            "document_number_counters");
+            "document_number_counters",
+            "invoices",
+            "invoice_lines");
 
     private final JdbcTemplate jdbcTemplate;
 
