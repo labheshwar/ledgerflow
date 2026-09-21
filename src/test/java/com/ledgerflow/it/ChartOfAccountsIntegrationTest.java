@@ -231,8 +231,10 @@ class ChartOfAccountsIntegrationTest extends AbstractIntegrationTest {
         Account cash = chartOfAccounts.requireByRole(SystemAccountRole.CASH);
         assertThat(cash.getSystemRole()).isEqualTo(SystemAccountRole.CASH);
 
-        // Nothing in the demo organization is assigned this role.
-        assertThatThrownBy(() -> chartOfAccounts.requireByRole(SystemAccountRole.FX_GAIN_LOSS))
+        // Nothing in the demo organization is assigned this role -- unlike
+        // FX_GAIN_LOSS, ROUNDING has never been backfilled onto it, since
+        // nothing has posted to that role yet either.
+        assertThatThrownBy(() -> chartOfAccounts.requireByRole(SystemAccountRole.ROUNDING))
                 .isInstanceOf(ChartOfAccountsException.class)
                 .satisfies(e -> assertThat(((ChartOfAccountsException) e).getCode())
                         .isEqualTo("MISSING_SYSTEM_ACCOUNT"));

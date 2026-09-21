@@ -78,9 +78,13 @@ class ClosingServiceIntegrationTest extends AbstractIntegrationTest {
                 .isEqualByComparingTo("-70.00");
 
         // The ledger as a whole still nets to zero -- closing moved value
-        // between accounts, it did not create or destroy any.
+        // between accounts, it did not create or destroy any. base_amount,
+        // not amount: a foreign-currency settlement elsewhere in this same
+        // org (see FxIntegrationTest) genuinely mixes currencies within one
+        // transaction, balanced only in the reporting currency, so summing
+        // raw amount across every entry in the org adds euros to dollars.
         assertThat(owner.queryForObject(
-                        "SELECT COALESCE(SUM(CASE WHEN entry_type = 'DEBIT' THEN amount ELSE -amount END), 0)"
+                        "SELECT COALESCE(SUM(CASE WHEN entry_type = 'DEBIT' THEN base_amount ELSE -base_amount END), 0)"
                                 + " FROM entries WHERE org_id = ?",
                         BigDecimal.class,
                         DEMO_ORG_ID))

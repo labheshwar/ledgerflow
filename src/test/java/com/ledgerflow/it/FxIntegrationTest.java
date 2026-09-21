@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Foreign-currency invoices and their settlement, exercised against real
@@ -40,6 +41,14 @@ import org.springframework.beans.factory.annotation.Autowired;
  * rate posts the exact realized gain or loss the two rates imply, as one
  * base-currency-only adjustment leg, and settling it at the very same rate
  * posts none at all.
+ *
+ * Every test that records a rate uses its own currency, never reused
+ * elsewhere in this class: fx_rates persists across tests within the same
+ * run (there is no per-test rollback), and "the latest rate on or before a
+ * date" would otherwise silently pick up a different test's own rate for
+ * a nearby date depending on JUnit's own, deliberately unspecified, test
+ * ordering -- exactly the shared-mutable-state fragility this project's
+ * own AbstractIntegrationTest warns every test against.
  */
 class FxIntegrationTest extends AbstractIntegrationTest {
 
@@ -63,6 +72,8 @@ class FxIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private AccountRepository accountRepository;
+
+    private final JdbcTemplate owner = ownerJdbc();
 
     @Test
     void aForeignCurrencyInvoicePostsInItsOwnCurrencyAtTheRateOnFileForItsIssueDate() {
@@ -91,18 +102,32 @@ class FxIntegrationTest extends AbstractIntegrationTest {
                 LocalDate.of(2026, 4, 5),
                 null,
                 List.of(new InvoiceLineDraft(null, "Consulting", BigDecimal.ONE, new BigDecimal("50.00"), null)),
-                "GBP"));
+                "NZD"));
 
-        assertThatThrownBy(() -> invoiceService.send(draft.getId()))
-                .isInstanceOf(FxRateException.class)
-                .satisfies(e -> assertThat(((FxRateException) e).getCode()).isEqualTo("MISSING_FX_RATE"));
+        try {
+            assertThatThrownBy(() -> invoiceService.send(draft.getId()))
+                    .isInstanceOf(FxRateException.class)
+                    .satisfies(e -> assertThat(((FxRateException) e).getCode()).isEqualTo("MISSING_FX_RATE"));
+        } finally {
+            // send() already marked this draft SENT and committed that
+            // before the posting call failed -- exactly the crash window
+            // InvoiceSweeper exists to heal, except here it never will,
+            // since no NZD rate is ever going to arrive. Left alone, this
+            // row is picked up by every other test in this run that scans
+            // for stuck invoices org-wide (retryStuckSends()), failing on
+            // this one before it ever reaches its own. Deleting it, not
+            // voiding it -- voiding needs a posted transaction this one
+            // was never given.
+            owner.update("DELETE FROM invoice_lines WHERE invoice_id = ?", draft.getId());
+            owner.update("DELETE FROM invoices WHERE id = ?", draft.getId());
+        }
     }
 
     @Test
     void settlingAtTheSameRateThatFedTheInvoicePostsNoFxAdjustmentAtAll() {
-        fxRateService.record("EUR", new BigDecimal("1.10"), LocalDate.of(2026, 3, 10));
+        fxRateService.record("CHF", new BigDecimal("1.10"), LocalDate.of(2026, 3, 10));
         Contact customer = customer();
-        Invoice invoice = sentInvoice(customer, "EUR", LocalDate.of(2026, 3, 10), "200.00");
+        Invoice invoice = sentInvoice(customer, "CHF", LocalDate.of(2026, 3, 10), "200.00");
 
         Payment payment = paymentService.create(new PaymentDraft(
                 customer.getId(),
@@ -119,11 +144,11 @@ class FxIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void settlingAtALowerRateThanTheInvoicePostsARealizedLoss() {
-        fxRateService.record("EUR", new BigDecimal("1.10"), LocalDate.of(2026, 3, 15));
+        fxRateService.record("AUD", new BigDecimal("1.10"), LocalDate.of(2026, 3, 15));
         Contact customer = customer();
-        Invoice invoice = sentInvoice(customer, "EUR", LocalDate.of(2026, 3, 15), "100.00");
+        Invoice invoice = sentInvoice(customer, "AUD", LocalDate.of(2026, 3, 15), "100.00");
 
-        fxRateService.record("EUR", new BigDecimal("1.05"), LocalDate.of(2026, 4, 15));
+        fxRateService.record("AUD", new BigDecimal("1.05"), LocalDate.of(2026, 4, 15));
         Payment payment = paymentService.create(new PaymentDraft(
                 customer.getId(),
                 PaymentDirection.RECEIVED,
@@ -147,11 +172,11 @@ class FxIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void settlingAtAHigherRateThanTheInvoicePostsARealizedGain() {
-        fxRateService.record("EUR", new BigDecimal("1.10"), LocalDate.of(2026, 3, 20));
+        fxRateService.record("CAD", new BigDecimal("1.10"), LocalDate.of(2026, 3, 20));
         Contact customer = customer();
-        Invoice invoice = sentInvoice(customer, "EUR", LocalDate.of(2026, 3, 20), "100.00");
+        Invoice invoice = sentInvoice(customer, "CAD", LocalDate.of(2026, 3, 20), "100.00");
 
-        fxRateService.record("EUR", new BigDecimal("1.20"), LocalDate.of(2026, 4, 20));
+        fxRateService.record("CAD", new BigDecimal("1.20"), LocalDate.of(2026, 4, 20));
         Payment payment = paymentService.create(new PaymentDraft(
                 customer.getId(),
                 PaymentDirection.RECEIVED,
@@ -190,12 +215,12 @@ class FxIntegrationTest extends AbstractIntegrationTest {
     @Test
     void recordingTheSameCurrencyAndDateAgainCorrectsTheRateRatherThanDuplicatingIt() {
         LocalDate asOf = LocalDate.of(2026, 5, 1);
-        fxRateService.record("EUR", new BigDecimal("1.10"), asOf);
-        fxRateService.record("EUR", new BigDecimal("1.12"), asOf);
+        fxRateService.record("NOK", new BigDecimal("1.10"), asOf);
+        fxRateService.record("NOK", new BigDecimal("1.12"), asOf);
 
-        assertThat(fxRateRepository.findByCurrencyAndAsOfDate("EUR", asOf).orElseThrow().getRate())
+        assertThat(fxRateRepository.findByCurrencyAndAsOfDate("NOK", asOf).orElseThrow().getRate())
                 .isEqualByComparingTo("1.12");
-        assertThat(fxRateService.rateAsOf("EUR", asOf)).isEqualByComparingTo("1.12");
+        assertThat(fxRateService.rateAsOf("NOK", asOf)).isEqualByComparingTo("1.12");
     }
 
     @Test
@@ -207,11 +232,11 @@ class FxIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void aRateAppliesFromItsOwnDateOnwardUntilANewerOneIsRecorded() {
-        fxRateService.record("EUR", new BigDecimal("1.10"), LocalDate.of(2026, 5, 10));
-        assertThat(fxRateService.rateAsOf("EUR", LocalDate.of(2026, 5, 10))).isEqualByComparingTo("1.10");
-        assertThat(fxRateService.rateAsOf("EUR", LocalDate.of(2026, 5, 15))).isEqualByComparingTo("1.10");
+        fxRateService.record("DKK", new BigDecimal("1.10"), LocalDate.of(2026, 5, 10));
+        assertThat(fxRateService.rateAsOf("DKK", LocalDate.of(2026, 5, 10))).isEqualByComparingTo("1.10");
+        assertThat(fxRateService.rateAsOf("DKK", LocalDate.of(2026, 5, 15))).isEqualByComparingTo("1.10");
 
-        assertThatThrownBy(() -> fxRateService.rateAsOf("EUR", LocalDate.of(2026, 5, 9)))
+        assertThatThrownBy(() -> fxRateService.rateAsOf("DKK", LocalDate.of(2026, 5, 9)))
                 .isInstanceOf(FxRateException.class)
                 .satisfies(e -> assertThat(((FxRateException) e).getCode()).isEqualTo("MISSING_FX_RATE"));
     }
