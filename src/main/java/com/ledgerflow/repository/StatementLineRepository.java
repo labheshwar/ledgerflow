@@ -18,6 +18,20 @@ public interface StatementLineRepository extends JpaRepository<StatementLine, Lo
     Page<StatementLine> findByBankAccountIdAndCommittedOrderByTxnDateDesc(
             Long bankAccountId, boolean committed, Pageable pageable);
 
+    /** The reconciliation workspace's own two panes: what still needs matching, and what already has been. */
+    Page<StatementLine> findByBankAccountIdAndCommittedTrueAndMatchedEntryIdIsNullOrderByTxnDateDesc(
+            Long bankAccountId, Pageable pageable);
+
+    Page<StatementLine> findByBankAccountIdAndCommittedTrueAndMatchedEntryIdIsNotNullOrderByTxnDateDesc(
+            Long bankAccountId, Pageable pageable);
+
+    long countByBankAccountIdAndCommittedTrue(Long bankAccountId);
+
+    long countByBankAccountIdAndCommittedTrueAndMatchedEntryIdIsNotNull(Long bankAccountId);
+
+    /** The one-line-per-entry guard's own read, ahead of relying on the partial unique index to catch a race. */
+    boolean existsByMatchedEntryId(Long matchedEntryId);
+
     /**
      * The dedupe check itself. Only ever true for a row from an import that
      * was actually committed -- an abandoned or re-previewed import's own

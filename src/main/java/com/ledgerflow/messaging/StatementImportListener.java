@@ -7,7 +7,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
-/** Worker-only, same reasoning as {@link ReconciliationListener}. */
+/** Worker-only, same reasoning as {@link InvoiceEmailListener}. */
 @Component
 @Profile("worker")
 public class StatementImportListener {

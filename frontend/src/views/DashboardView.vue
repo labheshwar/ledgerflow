@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import AppShell from '../layouts/AppShell.vue'
 import { apiFetch } from '../lib/api'
-import { formatMoney, formatRelativeTime, reconciliationPillClass } from '../lib/format'
+import { formatMoney, formatRelativeTime } from '../lib/format'
 import type { DashboardSummary, Paged, TransactionListItem } from '../lib/types'
 import { useAuthStore } from '../stores/auth'
 
@@ -12,8 +12,6 @@ const summary = ref<DashboardSummary | null>(null)
 const recentTransactions = ref<TransactionListItem[]>([])
 const loading = ref(true)
 const errorText = ref('')
-
-const latestBatch = computed(() => summary.value?.latestReconciliation ?? null)
 
 onMounted(async () => {
   try {
@@ -39,7 +37,7 @@ onMounted(async () => {
       <template v-if="auth.isAdmin">
         <RouterLink class="btn" to="/transactions/new">Post journal entry</RouterLink>
         <RouterLink class="btn" to="/periods">Periods</RouterLink>
-        <RouterLink class="btn" to="/reconciliation">Run reconciliation</RouterLink>
+        <RouterLink class="btn" to="/bank-accounts">Bank accounts</RouterLink>
       </template>
       <RouterLink class="btn btn-primary" to="/accounts">View accounts</RouterLink>
     </template>
@@ -60,21 +58,6 @@ onMounted(async () => {
         <div class="stat-card">
           <div class="label">Postings today</div>
           <div class="value mono">{{ summary.postingsToday }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Last reconciliation</div>
-          <template v-if="latestBatch">
-            <div class="value">
-              <span :class="reconciliationPillClass(latestBatch.status)">{{ latestBatch.status }}</span>
-            </div>
-            <div class="delta">
-              BATCH-{{ latestBatch.id }} · {{ formatRelativeTime(latestBatch.triggeredAt) }}
-            </div>
-          </template>
-          <template v-else>
-            <div class="value"><span class="pill pill-neutral">NONE</span></div>
-            <div class="delta">No reconciliation run yet</div>
-          </template>
         </div>
       </div>
 

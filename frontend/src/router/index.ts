@@ -25,16 +25,6 @@ const router = createRouter({
       name: 'transaction-detail',
       component: () => import('../views/TransactionDetailView.vue'),
     },
-    {
-      path: '/reconciliation',
-      name: 'reconciliation',
-      component: () => import('../views/ReconciliationView.vue'),
-    },
-    {
-      path: '/reconciliation/:id',
-      name: 'batch-detail',
-      component: () => import('../views/BatchDetailView.vue'),
-    },
     { path: '/audit-log', name: 'audit-log', component: () => import('../views/AuditLogView.vue') },
     { path: '/periods', name: 'periods', component: () => import('../views/PeriodsView.vue') },
     { path: '/contacts', name: 'contacts', component: () => import('../views/ContactsView.vue') },
@@ -85,6 +75,11 @@ const router = createRouter({
       path: '/bank-accounts/:id/imports/:importId',
       name: 'statement-import-detail',
       component: () => import('../views/StatementImportView.vue'),
+    },
+    {
+      path: '/bank-accounts/:id/reconcile',
+      name: 'reconciliation',
+      component: () => import('../views/ReconciliationView.vue'),
     },
   ],
 })

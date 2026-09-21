@@ -13,7 +13,7 @@ import org.springframework.amqp.rabbit.retry.RepublishMessageRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.stereotype.Component;
 
-/** Mirrors {@link ReconciliationFailureRecoverer} exactly, for the same reason. */
+/** Mirrors {@link InvoiceEmailFailureRecoverer}'s own dead-letter republish, plus marking its own row FAILED first. */
 @Component
 public class StatementImportFailureRecoverer implements MessageRecoverer {
 

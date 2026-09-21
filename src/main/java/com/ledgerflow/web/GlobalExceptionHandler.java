@@ -8,6 +8,7 @@ import com.ledgerflow.exception.PaymentException;
 import com.ledgerflow.exception.StatementImportException;
 import com.ledgerflow.exception.MasterDataException;
 import com.ledgerflow.exception.PeriodException;
+import com.ledgerflow.exception.ReconciliationException;
 import com.ledgerflow.exception.UnbalancedTransactionException;
 import com.ledgerflow.money.CurrencyMismatchException;
 import com.ledgerflow.web.dto.ErrorResponse;
@@ -76,6 +77,12 @@ public class GlobalExceptionHandler {
     /** A statement import, or a step of its wizard taken out of order, that its own rules forbid -- same shape as above. */
     @ExceptionHandler(StatementImportException.class)
     public ResponseEntity<ErrorResponse> handleStatementImport(StatementImportException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
+    /** A reconciliation action the workspace's own rules forbid -- same shape as above. */
+    @ExceptionHandler(ReconciliationException.class)
+    public ResponseEntity<ErrorResponse> handleReconciliation(ReconciliationException e) {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
     }
 

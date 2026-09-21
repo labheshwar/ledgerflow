@@ -26,6 +26,12 @@ import java.time.OffsetDateTime;
  * deleted and reinserted if the same import is re-previewed with a
  * different mapping, and never counted toward another import's own dedup
  * check until it is actually committed.
+ *
+ * {@code matchedEntryId} is milestone 14's own reconciliation workspace:
+ * once set, this line is accounted for by that entry -- one it already
+ * matched to, or one a payment or manual categorization just posted on
+ * its behalf -- enforced one-to-one by a partial unique index on that
+ * column, the same shape the dedupe guard above uses.
  */
 @Entity
 @Table(name = "statement_lines")
@@ -58,6 +64,12 @@ public class StatementLine {
 
     @Column(nullable = false)
     private boolean committed;
+
+    @Column(name = "matched_entry_id")
+    private Long matchedEntryId;
+
+    @Column(name = "matched_at")
+    private OffsetDateTime matchedAt;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -133,6 +145,22 @@ public class StatementLine {
 
     public void setCommitted(boolean committed) {
         this.committed = committed;
+    }
+
+    public Long getMatchedEntryId() {
+        return matchedEntryId;
+    }
+
+    public void setMatchedEntryId(Long matchedEntryId) {
+        this.matchedEntryId = matchedEntryId;
+    }
+
+    public OffsetDateTime getMatchedAt() {
+        return matchedAt;
+    }
+
+    public void setMatchedAt(OffsetDateTime matchedAt) {
+        this.matchedAt = matchedAt;
     }
 
     public OffsetDateTime getCreatedAt() {

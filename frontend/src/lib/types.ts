@@ -17,8 +17,6 @@ export type SystemAccountRole =
 
 export type EntryDirection = 'DEBIT' | 'CREDIT'
 export type TransactionStatus = 'POSTED'
-export type ReconciliationStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'
-export type ReconciliationResultStatus = 'MATCHED' | 'MISMATCHED'
 export type Role = 'ADMIN' | 'VIEWER'
 
 /** Mirrors the backend's PagedResponse envelope. */
@@ -114,33 +112,6 @@ export interface AccountingPeriod {
   closedAt: string | null
 }
 
-export interface ReconciliationResult {
-  accountId: number
-  accountName: string
-  ledgerBalance: number
-  externalBalance: number
-  status: ReconciliationResultStatus
-}
-
-export interface ReconciliationBatch {
-  id: number
-  status: ReconciliationStatus
-  triggeredAt: string
-  completedAt: string | null
-  results: ReconciliationResult[]
-}
-
-/** The list projection: tallies rather than the full result set. */
-export interface ReconciliationBatchSummary {
-  id: number
-  status: ReconciliationStatus
-  triggeredAt: string
-  completedAt: string | null
-  accountsCompared: number
-  matched: number
-  mismatched: number
-}
-
 export interface AuditLogEntry {
   id: number
   entityType: string
@@ -156,7 +127,6 @@ export interface DashboardSummary {
   totalAccounts: number
   totalLedgerBalance: number
   postingsToday: number
-  latestReconciliation: ReconciliationBatch | null
 }
 
 /** BOTH exists because plenty of small businesses buy from and sell to the same party. */
@@ -277,6 +247,9 @@ export interface Payment {
   amount: number
   currency: string
   notes: string | null
+  /** Set only when this payment was scoped to a specific bank account -- see the reconciliation workspace's own settle action. */
+  bankAccountId: number | null
+  bankAccountName: string | null
   postedTransactionId: number | null
   createdAt: string
   allocations: PaymentAllocation[]
@@ -379,4 +352,26 @@ export interface StatementLine {
   description: string
   amount: number
   committed: boolean
+  /** Set once the reconciliation workspace has matched this line to an entry. */
+  matchedEntryId: number | null
+  matchedAt: string | null
+}
+
+/** What the reconciliation workspace is offering as a candidate match for one statement line. */
+export type MatchKind = 'ENTRY' | 'INVOICE' | 'BILL'
+
+export interface MatchSuggestion {
+  kind: MatchKind
+  id: number
+  label: string
+  date: string
+  /** Signed the same way a statement line reads, so it can be compared or shown alongside one directly. */
+  amount: number
+  score: number
+}
+
+export interface ReconciliationSummary {
+  totalLines: number
+  matchedLines: number
+  unmatchedLines: number
 }

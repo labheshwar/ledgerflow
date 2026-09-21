@@ -1,8 +1,10 @@
 package com.ledgerflow.web;
 
+import com.ledgerflow.domain.BankAccount;
 import com.ledgerflow.domain.Contact;
 import com.ledgerflow.domain.Payment;
 import com.ledgerflow.domain.PaymentDirection;
+import com.ledgerflow.repository.BankAccountRepository;
 import com.ledgerflow.repository.ContactRepository;
 import com.ledgerflow.service.PaymentService;
 import com.ledgerflow.web.dto.OpenDocumentResponse;
@@ -37,10 +39,13 @@ public class PaymentController {
 
     private final PaymentService paymentService;
     private final ContactRepository contactRepository;
+    private final BankAccountRepository bankAccountRepository;
 
-    public PaymentController(PaymentService paymentService, ContactRepository contactRepository) {
+    public PaymentController(
+            PaymentService paymentService, ContactRepository contactRepository, BankAccountRepository bankAccountRepository) {
         this.paymentService = paymentService;
         this.contactRepository = contactRepository;
+        this.bankAccountRepository = bankAccountRepository;
     }
 
     @GetMapping
@@ -79,7 +84,11 @@ public class PaymentController {
     }
 
     private PaymentResponse toResponse(Payment payment) {
-        return PaymentResponse.from(payment, contactName(payment.getContactId()), paymentService.getAllocations(payment.getId()));
+        return PaymentResponse.from(
+                payment,
+                contactName(payment.getContactId()),
+                bankAccountName(payment.getBankAccountId()),
+                paymentService.getAllocations(payment.getId()));
     }
 
     private String contactName(Long contactId) {
@@ -87,5 +96,9 @@ public class PaymentController {
                 .findById(contactId)
                 .map(Contact::getName)
                 .orElseThrow(() -> new NoSuchElementException("No contact with id " + contactId));
+    }
+
+    private String bankAccountName(Long bankAccountId) {
+        return bankAccountId == null ? null : bankAccountRepository.findById(bankAccountId).map(BankAccount::getName).orElse(null);
     }
 }

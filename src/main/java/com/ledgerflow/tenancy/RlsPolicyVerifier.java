@@ -30,8 +30,6 @@ public class RlsPolicyVerifier implements ApplicationRunner {
             "transactions",
             "entries",
             "audit_log",
-            "reconciliation_batches",
-            "reconciliation_results",
             "outbox_event",
             "account_balance_snapshots",
             "accounting_periods",

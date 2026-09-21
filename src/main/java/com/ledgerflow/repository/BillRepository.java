@@ -41,4 +41,7 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
 
     /** Candidates for a payment's allocation picker -- only ever a specific contact's own open bills. */
     List<Bill> findByContactIdAndStatusOrderByDueDateAsc(Long contactId, BillStatus status);
+
+    /** The reconciliation workspace's own candidate list -- every open bill, not just one contact's. */
+    List<Bill> findByStatusOrderByDueDateAsc(BillStatus status);
 }

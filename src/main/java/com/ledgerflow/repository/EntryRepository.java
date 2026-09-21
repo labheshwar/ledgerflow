@@ -1,6 +1,7 @@
 package com.ledgerflow.repository;
 
 import com.ledgerflow.domain.Entry;
+import java.time.LocalDate;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -50,4 +51,23 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
 
     /** Whether an account has ever been posted to, which is what freezes it. */
     boolean existsByAccountId(Long accountId);
+
+    /**
+     * Candidates for the reconciliation workspace's own suggestions: entries
+     * on a bank account's ledger account, near a statement line's own date,
+     * that no other line has already claimed. The subquery reads {@code
+     * StatementLine} directly rather than joining it, since most entries on
+     * a busy cash account were never posted from a statement line to begin
+     * with and have nothing to join against.
+     */
+    @Query("""
+            SELECT e FROM Entry e
+            JOIN FETCH e.transaction t
+            WHERE e.account.id = :accountId
+              AND t.txnDate BETWEEN :from AND :to
+              AND e.id NOT IN (SELECT s.matchedEntryId FROM StatementLine s WHERE s.matchedEntryId IS NOT NULL)
+            ORDER BY t.txnDate ASC, e.id ASC
+            """)
+    List<Entry> findUnmatchedCandidates(
+            @Param("accountId") Long accountId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 }

@@ -16,7 +16,8 @@ public record PaymentRequest(
         @NotNull LocalDate paymentDate,
         @NotNull @Positive BigDecimal amount,
         @Size(max = 1000) String notes,
-        @Valid List<PaymentAllocationRequest> allocations) {
+        @Valid List<PaymentAllocationRequest> allocations,
+        Long bankAccountId) {
 
     public PaymentDraft toDraft() {
         return new PaymentDraft(
@@ -25,6 +26,7 @@ public record PaymentRequest(
                 paymentDate,
                 amount,
                 notes,
-                allocations == null ? List.of() : allocations.stream().map(PaymentAllocationRequest::toDraft).toList());
+                allocations == null ? List.of() : allocations.stream().map(PaymentAllocationRequest::toDraft).toList(),
+                bankAccountId);
     }
 }

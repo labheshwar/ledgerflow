@@ -1,7 +1,6 @@
 package com.ledgerflow.service;
 
 import com.ledgerflow.repository.AccountBalanceQueries;
-import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.TransactionRepository;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -14,15 +13,10 @@ public class DashboardService {
 
     private final AccountBalanceQueries accountBalanceQueries;
     private final TransactionRepository transactionRepository;
-    private final ReconciliationBatchRepository batchRepository;
 
-    public DashboardService(
-            AccountBalanceQueries accountBalanceQueries,
-            TransactionRepository transactionRepository,
-            ReconciliationBatchRepository batchRepository) {
+    public DashboardService(AccountBalanceQueries accountBalanceQueries, TransactionRepository transactionRepository) {
         this.accountBalanceQueries = accountBalanceQueries;
         this.transactionRepository = transactionRepository;
-        this.batchRepository = batchRepository;
     }
 
     public DashboardSummary getSummary() {
@@ -36,10 +30,6 @@ public class DashboardService {
         OffsetDateTime startOfToday = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.DAYS);
         long postingsToday = transactionRepository.countByCreatedAtAfter(startOfToday);
 
-        return new DashboardSummary(
-                accountCount,
-                totalLedgerBalance,
-                postingsToday,
-                batchRepository.findFirstByOrderByTriggeredAtDesc().orElse(null));
+        return new DashboardSummary(accountCount, totalLedgerBalance, postingsToday);
     }
 }

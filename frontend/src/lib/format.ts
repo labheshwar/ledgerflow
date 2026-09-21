@@ -1,4 +1,4 @@
-import type { EntryDirection, ReconciliationResultStatus, ReconciliationStatus } from './types'
+import type { EntryDirection } from './types'
 
 /**
  * Formats an amount in the currency it is actually denominated in.
@@ -65,29 +65,6 @@ export function directionPillClass(direction: EntryDirection): string {
 
 export function signedAmount(direction: EntryDirection, amount: number, currency = 'USD'): string {
   return (direction === 'DEBIT' ? '+' : '-') + formatMoney(amount, currency)
-}
-
-export function formatDuration(startIso: string, endIso: string | null): string {
-  if (!endIso) return 'Running…'
-  const totalSec = Math.max(0, Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000))
-  const min = Math.floor(totalSec / 60)
-  const sec = totalSec % 60
-  return min > 0 ? `${min}m ${sec}s` : `${sec}s`
-}
-
-export function reconciliationPillClass(status: ReconciliationStatus): string {
-  switch (status) {
-    case 'COMPLETED':
-      return 'pill pill-green'
-    case 'FAILED':
-      return 'pill pill-red'
-    default:
-      return 'pill pill-amber'
-  }
-}
-
-export function reconciliationResultPillClass(status: ReconciliationResultStatus): string {
-  return status === 'MATCHED' ? 'pill pill-green' : 'pill pill-red'
 }
 
 export function accountTypePillClass(type: string): string {

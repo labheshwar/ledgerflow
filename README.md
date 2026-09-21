@@ -30,10 +30,12 @@ a reconciliation process against an external source of truth, and a permanent au
   through periodic snapshots so the sum stays bounded as history grows. There is no balance
   column to drift from the entries that explain it, and posting no longer contends on the
   account row, so two people invoicing at once never collide.
-- **Asynchronous reconciliation** — triggering a reconciliation queues a message on RabbitMQ
-  and returns immediately; a separate worker compares the ledger against a simulated external
-  statement feed, records per-account matches/mismatches, and marks the batch complete or
-  failed, with retry and dead-letter handling if the worker dies mid-run.
+- **Reconciliation workspace** — a two-pane view matches an imported statement's own lines
+  against the ledger, one line at a time: fuzzy-scored candidates (an existing entry on the
+  bank account, or an open invoice or bill it could settle), a one-click match, and a
+  categorize action that posts a brand-new journal entry directly when neither exists. A
+  partial unique index stops the same ledger entry from ever accounting for two different
+  lines, the same guard shape the statement import's own dedupe already uses.
 - **Money is a type, not a number** — amounts carry their currency, normalize to that
   currency's scale (two places for USD, none for JPY), and refuse to be added across
   currencies. Splitting is exact: five cents three ways is 2/2/1, never three parts that fail
@@ -123,9 +125,8 @@ a reconciliation process against an external source of truth, and a permanent au
   the bank gives none) and stages only the rows that are not already committed for that bank
   account. A partial unique index on `(bank_account_id, external_id) WHERE committed`, the same
   guard shape bills' own duplicate-vendor-bill check uses, is what actually enforces the dedupe
-  — the preview is a courtesy, not the only thing standing in the way. Nothing here posts to the
-  ledger yet; a committed line is descriptive until milestone 14's reconciliation workspace
-  matches it against something real.
+  — the preview is a courtesy, not the only thing standing in the way. A committed line is
+  descriptive until the reconciliation workspace above matches it against something real.
 
 ## Architecture
 ```mermaid
@@ -140,7 +141,7 @@ flowchart LR
 
     subgraph worker [worker profile]
         Poller[OutboxPoller]
-        Reconcile[ReconciliationService]
+        Import[StatementImportListener]
         Snapshots[BalanceSnapshotJob]
         Consumer[Event consumers]
     end
@@ -150,13 +151,13 @@ flowchart LR
     Kafka{{Kafka}}
 
     Client -->|"POST /transactions<br/>GET /accounts/:id"| API
-    Client -->|POST /reconciliation/trigger| API
+    Client -->|"bank-accounts/:id/reconciliation/..."| API
 
     API --> Posting -->|"ledger + outbox_event<br/>one transaction"| Postgres
     API --> Balance -->|"snapshot + entries since"| Postgres
     Snapshots -->|checkpoint balances| Postgres
 
-    API -->|publish job| RabbitMQ -->|consume| Reconcile --> Postgres
+    API -->|publish job| RabbitMQ -->|consume| Import --> Postgres
 
     Postgres -->|"FOR UPDATE SKIP LOCKED"| Poller -->|publish event| Kafka
     Kafka --> Consumer
@@ -219,7 +220,7 @@ means a slow reconciliation can never eat a thread that was going to serve a req
 contains privilege: the outbox poller needs an identity that can read every organization's
 events, and only the worker process ever opens a connection with it.
 
-JWT auth carries a role claim distinguishing `ADMIN` (can post, can trigger reconciliation)
+JWT auth carries a role claim distinguishing `ADMIN` (can post, can match a statement line)
 from `VIEWER` (read-only), and an `org` claim that scopes every query through PostgreSQL
 row-level security.
 
@@ -306,19 +307,6 @@ Read the whole chart as a tree, headings carrying the total of everything filed 
 ```bash
 curl -s http://localhost:8080/accounts/tree -H "Authorization: Bearer $TOKEN"
 ```
-
-Trigger a reconciliation and check its status once it completes:
-
-```bash
-BATCH_ID=$(curl -s -X POST http://localhost:8080/reconciliation/trigger \
-  -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"id":([0-9]+).*/\1/')
-
-curl -s http://localhost:8080/reconciliation/$BATCH_ID -H "Authorization: Bearer $TOKEN"
-```
-
-The trigger call returns immediately (`202 Accepted`, status `PENDING`); the batch flips to
-`COMPLETED` shortly after, once the reconciliation worker has consumed the message and recorded
-a `MATCHED`/`MISMATCHED` result per account.
 
 Reverse a transaction (posts the mirror entry, dated today by default):
 
@@ -510,6 +498,55 @@ Uploading the exact same file again previews the same rows as `duplicateRows`, n
 the point of `external_id`, mapped from the bank's own reference column or, absent one,
 computed from date/description/amount so a re-import of the same statement still dedupes.
 
+Once a statement is committed, work through it in the reconciliation workspace -- suggestions
+first, then a match:
+
+```bash
+curl -s "http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/reconciliation/summary" \
+  -H "Authorization: Bearer $TOKEN"
+# {"totalLines":3,"matchedLines":0,"unmatchedLines":3}
+
+LINE_ID=$(curl -s "http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/reconciliation/lines?matched=false" \
+  -H "Authorization: Bearer $TOKEN" | sed -E 's/.*"content":\[\{"id":([0-9]+).*/\1/')
+
+curl -s "http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/reconciliation/lines/$LINE_ID/suggestions" \
+  -H "Authorization: Bearer $TOKEN"
+# [{"kind":"INVOICE","id":1,"label":"INV-00001 — Acme Widgets","date":"2026-10-21",
+#   "amount":115.00,"score":0.83}, ...] -- ENTRY, INVOICE or BILL, ranked highest first
+```
+
+A suggestion of kind `ENTRY` is matched directly:
+
+```bash
+curl -s -X POST "http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/reconciliation/lines/$LINE_ID/match" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"entryId": 42}'
+```
+
+A suggestion of kind `INVOICE` or `BILL` is settled instead -- this creates the payment that
+pays it, scoped to this specific bank account rather than the organization's single Cash
+account, so the entry it posts lands where it can be matched back:
+
+```bash
+curl -s -X POST "http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/reconciliation/lines/$LINE_ID/settle" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"documentType": "INVOICE", "documentId": 1}'
+```
+
+Nothing plausible on either side? Categorize it instead -- posts a new journal entry directly
+between the bank account and whichever account it names (a bank fee, interest, anything else
+that was never going to be an invoice or a bill):
+
+```bash
+curl -s -X POST "http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/reconciliation/lines/$LINE_ID/categorize" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"accountId": 6, "description": "Monthly service fee"}'
+```
+
+Any of the three sets the line's `matchedEntryId`; `POST .../unmatch` clears it again without
+touching the entry that was posted -- unmatching breaks the link, not the posting, so a line
+can be pointed at something else without ever double-posting.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -557,16 +594,16 @@ still decides what it is allowed to see once resolved.
 
 ### Listing, paging and filtering
 
-Every list endpoint (`/accounts`, `/transactions`, `/reconciliation`, `/audit-log`) is paged and
-returns the same envelope:
+Every list endpoint (`/accounts`, `/transactions`, `/bank-accounts/:id/reconciliation/lines`,
+`/audit-log`) is paged and returns the same envelope:
 
 ```json
 { "content": [], "page": 0, "size": 25, "totalElements": 0, "totalPages": 0 }
 ```
 
 They accept `page`, `size` and `sort` (`sort=balance,desc`), plus per-resource filters — `q` for
-a case-insensitive substring search, and `type` on accounts, `entityType` on the audit log,
-`status` on reconciliation:
+a case-insensitive substring search, `type` on accounts, `entityType` on the audit log, and
+`matched` (`true`/`false`, omit for both) on a bank account's own reconciliation lines:
 
 ```bash
 curl -s "http://localhost:8080/accounts?type=ASSET&sort=balance,desc&size=5" \
@@ -604,10 +641,14 @@ and bills' own — `BILL_NOT_EDITABLE`, `BILL_NOT_VOIDABLE`, `BILL_NOT_POSTED_YE
 `ALLOCATION_EXCEEDS_BALANCE`, `DOCUMENT_NOT_OPEN`, `WRONG_DOCUMENT_TYPE_FOR_DIRECTION`,
 `CONTACT_MISMATCH`, `PAYMENT_NOT_VOIDABLE`, `PAYMENT_NOT_POSTED_YET`, `INVALID_AMOUNT`
 (`CONTACT_NOT_A_CUSTOMER`, `CONTACT_NOT_A_VENDOR` and `INVALID_DATE` above are shared with
-payments too) — and the statement import wizard's own — `INVALID_MAPPING`, `EMPTY_FILE`,
+payments too) — the statement import wizard's own — `INVALID_MAPPING`, `EMPTY_FILE`,
 `INVALID_CSV`, `IMPORT_ALREADY_PROCESSING`, `IMPORT_ALREADY_COMMITTED`, `IMPORT_NOT_PREVIEWED`
 (`ACCOUNT_NOT_POSTABLE` and `ACCOUNT_ARCHIVED` above are reused, unchanged, for a bank account
-pointed at a heading or an archived account).
+pointed at a heading or an archived account) — and the reconciliation workspace's own —
+`LINE_NOT_COMMITTED`, `LINE_ALREADY_MATCHED`, `LINE_NOT_MATCHED`, `ENTRY_WRONG_ACCOUNT`,
+`ENTRY_ALREADY_MATCHED`, `AMOUNT_DIRECTION_MISMATCH`, `DOCUMENT_ALREADY_SETTLED`,
+`BANK_ACCOUNT_NOT_FOUND` (the last one on `/payments` too, once a payment is scoped to a bank
+account that does not exist).
 
 ### Watching the event stream
 
@@ -671,10 +712,6 @@ link" action, renders outside the app shell entirely -- no sidebar, no login red
 whoever holds the link, signed in or not. It is the one route the router's auth guard
 deliberately never touches.
 
-Deliberately left out, matching gaps in the API itself: CSV export and per-discrepancy
-resolution — the reconciliation model here compares whole account balances, not individual
-bank-line items.
-
 In Docker, it's served by nginx at `http://localhost:8081`, with `/api/*` proxied to the `app`
 service (no CORS configuration needed since the browser only ever talks to one origin). For
 local development with hot reload against the backend from `docker compose`:
@@ -730,12 +767,11 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   settling it in total even though each looked fine on its own. Real money at this scale would
   need `SELECT ... FOR UPDATE` or an equivalent lock across the read-then-write; skipped here as
   a demo-scale simplification, not because the race is not real.
-- **A payment always uses the organization's single Cash account, not a chosen bank account** —
-  bank accounts exist now, but nothing yet lets a payment name which one moved; that wiring is
-  a natural extension of milestone 13, not milestone 13 itself.
-- **A committed statement line does not post or match anything yet** — it is descriptive,
-  waiting for milestone 14's reconciliation workspace to compare it against the ledger and turn
-  a match into an actual entry.
+- **Only the reconciliation workspace's own `settle` action can point a payment at a specific
+  bank account** — recording one directly through `POST /payments` still always posts to the
+  organization's single Cash account; the manual payment form was never wired up to offer a
+  choice, since nothing needed it to until a statement line's own entry had to land on one
+  particular account to be matchable back to it.
 - **The computed fallback `external_id` can collide** — when a bank's own CSV carries no
   per-transaction reference, the fallback hash is date + description + amount; two genuinely
   different transactions sharing all three on the same day are indistinguishable to it, and the
@@ -745,6 +781,18 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   another format fails every one of its own rows as an error rather than being guessed at.
 - **An uploaded statement has no size limit** — the same simplification `AttachmentService`
   already accepts for a receipt.
+- **Matching a line is not race-safe** — the same class of gap a payment's own allocation
+  already has: two requests matching the same still-unmatched line at the same moment can both
+  pass validation before either writes back, though the database's own partial unique index on
+  `matched_entry_id` still stops two lines from ever sharing one entry.
+- **A crash between `settle` posting a payment and matching its line has no sweeper** — unlike
+  an invoice, bill or payment's own two-halves posting, a statement line stuck unmatched after
+  its payment actually posted has to be re-matched by hand; there is no background job looking
+  for that particular gap, because the window is a single request rather than an asynchronous
+  job with its own retry.
+- **There is no way to dismiss a line that will never match anything** — every unmatched line
+  is either matched, settled or categorized eventually; there is no "ignore" status for, say, a
+  bank's own opening-balance line that reconciles against nothing.
 
 These are the natural next steps, not oversights being hidden.
 

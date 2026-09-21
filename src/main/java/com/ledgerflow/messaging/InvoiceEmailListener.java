@@ -7,7 +7,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
-/** Worker-only, same reason {@link ReconciliationListener} is: rendering a PDF and talking to SMTP must not hold an HTTP thread. */
+/** Worker-only, same reason {@link StatementImportListener} is: rendering a PDF and talking to SMTP must not hold an HTTP thread. */
 @Component
 @Profile("worker")
 public class InvoiceEmailListener {

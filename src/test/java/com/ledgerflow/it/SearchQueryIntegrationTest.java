@@ -4,12 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.AccountType;
-import com.ledgerflow.domain.ReconciliationStatus;
 import com.ledgerflow.repository.AccountBalanceQueries;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.AccountWithBalance;
 import com.ledgerflow.repository.AuditLogRepository;
-import com.ledgerflow.repository.ReconciliationBatchRepository;
 import com.ledgerflow.repository.TransactionRepository;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -45,9 +43,6 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private AuditLogRepository auditLogRepository;
-
-    @Autowired
-    private ReconciliationBatchRepository batchRepository;
 
     private static final PageRequest FIRST_PAGE = PageRequest.of(0, 10, Sort.by("id"));
 
@@ -122,12 +117,5 @@ class SearchQueryIntegrationTest extends AbstractIntegrationTest {
                 .allMatch(a -> a.getEntityType().equals("TRANSACTION"));
         assertThat(auditLogRepository.search("system", null, FIRST_PAGE)).isNotNull();
         assertThat(auditLogRepository.search("system", "ACCOUNT", FIRST_PAGE)).isNotNull();
-    }
-
-    @Test
-    void reconciliationSearchRunsWithAndWithoutAStatus() {
-        assertThat(batchRepository.search(null, FIRST_PAGE)).isNotNull();
-        assertThat(batchRepository.search(ReconciliationStatus.COMPLETED, FIRST_PAGE).getContent())
-                .allMatch(b -> b.getStatus() == ReconciliationStatus.COMPLETED);
     }
 }

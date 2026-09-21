@@ -82,6 +82,7 @@ function statusPillClass(status: StatementImport['status']): string {
     <template #actions>
       <template v-if="auth.isAdmin && bankAccount">
         <button type="button" class="btn" @click="formOpen = true">Edit</button>
+        <RouterLink class="btn" :to="`/bank-accounts/${bankAccountId}/reconcile`"> Reconcile </RouterLink>
         <RouterLink class="btn btn-primary" :to="`/bank-accounts/${bankAccountId}/imports/new`">
           + Import statement
         </RouterLink>
@@ -112,6 +113,7 @@ function statusPillClass(status: StatementImport['status']): string {
               <div>Date</div>
               <div>Description</div>
               <div style="text-align: right">Amount</div>
+              <div></div>
             </div>
             <div v-for="line in lines?.content ?? []" :key="line.id" class="line-row">
               <div class="meta">{{ formatDate(line.txnDate) }}</div>
@@ -119,6 +121,9 @@ function statusPillClass(status: StatementImport['status']): string {
               <div class="amt" :class="{ negative: line.amount < 0 }">
                 {{ formatMoney(line.amount, bankAccount.currency) }}
               </div>
+              <span :class="line.matchedEntryId ? 'pill pill-green' : 'pill pill-amber'">
+                {{ line.matchedEntryId ? 'Matched' : 'Unmatched' }}
+              </span>
             </div>
           </div>
 
@@ -194,7 +199,7 @@ function statusPillClass(status: StatementImport['status']): string {
 }
 .row-head {
   display: grid;
-  grid-template-columns: 100px 1fr 110px;
+  grid-template-columns: 100px 1fr 110px 90px;
   gap: 10px;
   padding: 8px 2px;
   font-family: 'IBM Plex Mono', monospace;
@@ -207,7 +212,7 @@ function statusPillClass(status: StatementImport['status']): string {
 }
 .line-row {
   display: grid;
-  grid-template-columns: 100px 1fr 110px;
+  grid-template-columns: 100px 1fr 110px 90px;
   gap: 10px;
   align-items: center;
   padding: 6px 2px;

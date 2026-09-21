@@ -11,9 +11,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Invoked once in-process retries for a stuck email are exhausted. Unlike
- * {@link ReconciliationFailureRecoverer} there is no batch row to mark
- * FAILED -- an email send has no status of its own to update, only the DLQ
- * as the record that it never went out.
+ * {@link StatementImportFailureRecoverer} there is no row of its own to
+ * mark FAILED -- an email send has no status of its own to update, only
+ * the DLQ as the record that it never went out.
  */
 @Component
 public class InvoiceEmailFailureRecoverer implements MessageRecoverer {

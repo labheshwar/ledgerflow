@@ -2,7 +2,7 @@ package com.ledgerflow.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.ledgerflow.messaging.ReconciliationListener;
+import com.ledgerflow.messaging.StatementImportListener;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +35,7 @@ class WebProfileIntegrationTest extends AbstractIntegrationTest {
                 .as("a web replica must not compete with workers for queued jobs")
                 .isEmpty();
 
-        assertThat(context.getBeanNamesForType(ReconciliationListener.class)).isEmpty();
+        assertThat(context.getBeanNamesForType(StatementImportListener.class)).isEmpty();
 
         // No poller, and therefore no connection pool holding the one
         // identity in the system that can read across organizations.
@@ -48,8 +48,8 @@ class WebProfileIntegrationTest extends AbstractIntegrationTest {
         // brought up before any worker existed would have the web tier
         // publishing to an exchange that had never been declared, and the
         // broker would drop those messages without complaint.
-        assertThat(context.containsBean("reconciliationExchange")).isTrue();
-        assertThat(context.containsBean("reconciliationQueue")).isTrue();
-        assertThat(context.containsBean("reconciliationBinding")).isTrue();
+        assertThat(context.containsBean("statementImportExchange")).isTrue();
+        assertThat(context.containsBean("statementImportQueue")).isTrue();
+        assertThat(context.containsBean("statementImportBinding")).isTrue();
     }
 }

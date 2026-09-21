@@ -22,6 +22,14 @@ import java.time.OffsetDateTime;
  * its allocations: the remainder is what {@link com.ledgerflow.service.PaymentService}
  * posts to the customer's or vendor's prepayment account rather than to any
  * one invoice or bill. There is no draft stage -- see {@link PaymentStatus}.
+ *
+ * {@code bankAccountId} is null for a payment recorded the ordinary way,
+ * which still posts its cash side to the organization's one system CASH
+ * account exactly as before milestone 14. The reconciliation workspace
+ * sets it when a statement line is settled against an invoice or bill, so
+ * the cash leg lands on that specific bank account's own ledger account
+ * instead -- otherwise the resulting entry could never be matched back to
+ * the line that caused it.
  */
 @Entity
 @Table(name = "payments")
@@ -56,6 +64,9 @@ public class Payment {
 
     @Column(length = 1000)
     private String notes;
+
+    @Column(name = "bank_account_id")
+    private Long bankAccountId;
 
     /** Null only in the crash window between posting and this write-back -- see {@code PaymentSweeper}. */
     @Column(name = "posted_transaction_id")
@@ -135,6 +146,14 @@ public class Payment {
 
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    public Long getBankAccountId() {
+        return bankAccountId;
+    }
+
+    public void setBankAccountId(Long bankAccountId) {
+        this.bankAccountId = bankAccountId;
     }
 
     public Long getPostedTransactionId() {

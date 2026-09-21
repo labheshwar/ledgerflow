@@ -19,11 +19,14 @@ public record PaymentResponse(
         BigDecimal amount,
         String currency,
         String notes,
+        Long bankAccountId,
+        String bankAccountName,
         Long postedTransactionId,
         OffsetDateTime createdAt,
         List<PaymentAllocationResponse> allocations) {
 
-    public static PaymentResponse from(Payment payment, String contactName, List<PaymentAllocation> allocations) {
+    public static PaymentResponse from(
+            Payment payment, String contactName, String bankAccountName, List<PaymentAllocation> allocations) {
         return new PaymentResponse(
                 payment.getId(),
                 payment.getContactId(),
@@ -34,6 +37,8 @@ public record PaymentResponse(
                 payment.getAmount(),
                 payment.getCurrency(),
                 payment.getNotes(),
+                payment.getBankAccountId(),
+                bankAccountName,
                 payment.getPostedTransactionId(),
                 payment.getCreatedAt(),
                 allocations.stream().map(PaymentAllocationResponse::from).toList());

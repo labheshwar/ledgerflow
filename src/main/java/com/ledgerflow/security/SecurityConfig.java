@@ -61,7 +61,6 @@ public class SecurityConfig {
                         // posting a reversal at /transactions/{id}/reverse
                         // needs ADMIN exactly as posting the original did.
                         .requestMatchers(HttpMethod.POST, "/transactions/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/reconciliation/**").hasRole("ADMIN")
                         // Editing the chart of accounts changes how every
                         // figure in the business is classified, so it is an
                         // administrator's job. Reading it is not.

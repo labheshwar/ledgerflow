@@ -1,7 +1,6 @@
 package com.ledgerflow.config;
 
 import com.ledgerflow.messaging.InvoiceEmailFailureRecoverer;
-import com.ledgerflow.messaging.ReconciliationFailureRecoverer;
 import com.ledgerflow.messaging.StatementImportFailureRecoverer;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -19,14 +18,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RabbitMQConfig {
 
-    public static final String EXCHANGE = "reconciliation.exchange";
-    public static final String QUEUE = "reconciliation.queue";
-    public static final String ROUTING_KEY = "reconciliation.trigger";
-
-    public static final String DLX = "reconciliation.dlx";
-    public static final String DLQ = "reconciliation.dlq";
-    public static final String DLQ_ROUTING_KEY = "reconciliation.trigger.dlq";
-
     public static final String INVOICE_EMAIL_EXCHANGE = "invoice-email.exchange";
     public static final String INVOICE_EMAIL_QUEUE = "invoice-email.queue";
     public static final String INVOICE_EMAIL_ROUTING_KEY = "invoice-email.send";
@@ -42,36 +33,6 @@ public class RabbitMQConfig {
     public static final String STATEMENT_IMPORT_DLX = "statement-import.dlx";
     public static final String STATEMENT_IMPORT_DLQ = "statement-import.dlq";
     public static final String STATEMENT_IMPORT_DLQ_ROUTING_KEY = "statement-import.preview.dlq";
-
-    @Bean
-    public DirectExchange reconciliationExchange() {
-        return new DirectExchange(EXCHANGE);
-    }
-
-    @Bean
-    public Queue reconciliationQueue() {
-        return QueueBuilder.durable(QUEUE).build();
-    }
-
-    @Bean
-    public Binding reconciliationBinding(Queue reconciliationQueue, DirectExchange reconciliationExchange) {
-        return BindingBuilder.bind(reconciliationQueue).to(reconciliationExchange).with(ROUTING_KEY);
-    }
-
-    @Bean
-    public DirectExchange reconciliationDlx() {
-        return new DirectExchange(DLX);
-    }
-
-    @Bean
-    public Queue reconciliationDlq() {
-        return QueueBuilder.durable(DLQ).build();
-    }
-
-    @Bean
-    public Binding reconciliationDlqBinding(Queue reconciliationDlq, DirectExchange reconciliationDlx) {
-        return BindingBuilder.bind(reconciliationDlq).to(reconciliationDlx).with(DLQ_ROUTING_KEY);
-    }
 
     @Bean
     public DirectExchange invoiceEmailExchange() {
@@ -146,35 +107,13 @@ public class RabbitMQConfig {
     }
 
     /**
-     * Named to match Spring Boot's default so every @RabbitListener picks it
-     * up without an explicit containerFactory attribute. A failed listener
-     * invocation is retried in-process (3 attempts, exponential backoff);
-     * once exhausted, ReconciliationFailureRecoverer marks the batch FAILED
-     * and republishes the message to the dead-letter queue instead of
-     * looping forever.
-     */
-    @Bean
-    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
-            ConnectionFactory connectionFactory,
-            Jackson2JsonMessageConverter converter,
-            ReconciliationFailureRecoverer recoverer) {
-        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
-        factory.setMessageConverter(converter);
-        factory.setAdviceChain(RetryInterceptorBuilder.stateless()
-                .maxAttempts(3)
-                .backOffOptions(1000L, 2.0, 10_000L)
-                .recoverer(recoverer)
-                .build());
-        return factory;
-    }
-
-    /**
-     * A second factory rather than reusing the one above: that one's advice
-     * chain is wired to ReconciliationFailureRecoverer specifically, which
-     * would try to deserialize an invoice-email message as a
-     * ReconciliationRequestedEvent and republish a genuinely failed send to
-     * the wrong dead-letter queue entirely.
+     * Its own factory per job type, each wired to that job's own failure
+     * recoverer: a shared factory's advice chain would try to deserialize
+     * one job's message as another's event and republish a genuine
+     * failure to the wrong dead-letter queue entirely. A failed listener
+     * invocation is retried in-process (3 attempts, exponential backoff)
+     * before the recoverer marks its own job FAILED and republishes to its
+     * own DLQ instead of looping forever.
      */
     @Bean
     public SimpleRabbitListenerContainerFactory invoiceEmailListenerContainerFactory(

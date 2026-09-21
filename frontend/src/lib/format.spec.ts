@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   accountTypePillClass,
   directionPillClass,
-  formatDuration,
   formatMoney,
   formatRelativeTime,
-  reconciliationPillClass,
-  reconciliationResultPillClass,
   signedAmount,
 } from './format'
 
@@ -65,24 +62,6 @@ describe('signedAmount', () => {
   })
 })
 
-describe('formatDuration', () => {
-  it('reports an unfinished batch as running', () => {
-    expect(formatDuration('2026-09-11T10:00:00Z', null)).toBe('Running…')
-  })
-
-  it('formats sub-minute durations in seconds only', () => {
-    expect(formatDuration('2026-09-11T10:00:00Z', '2026-09-11T10:00:42Z')).toBe('42s')
-  })
-
-  it('formats longer durations as minutes and seconds', () => {
-    expect(formatDuration('2026-09-11T10:00:00Z', '2026-09-11T10:03:12Z')).toBe('3m 12s')
-  })
-
-  it('never returns a negative duration when timestamps are out of order', () => {
-    expect(formatDuration('2026-09-11T10:05:00Z', '2026-09-11T10:00:00Z')).toBe('0s')
-  })
-})
-
 describe('formatRelativeTime', () => {
   it('describes the recent past in the largest sensible unit', () => {
     const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
@@ -95,18 +74,6 @@ describe('formatRelativeTime', () => {
 })
 
 describe('pill classes', () => {
-  it('maps reconciliation batch status to a tone', () => {
-    expect(reconciliationPillClass('COMPLETED')).toContain('pill-green')
-    expect(reconciliationPillClass('FAILED')).toContain('pill-red')
-    expect(reconciliationPillClass('PENDING')).toContain('pill-amber')
-    expect(reconciliationPillClass('IN_PROGRESS')).toContain('pill-amber')
-  })
-
-  it('maps a per-account result to matched or not', () => {
-    expect(reconciliationResultPillClass('MATCHED')).toContain('pill-green')
-    expect(reconciliationResultPillClass('MISMATCHED')).toContain('pill-red')
-  })
-
   it('tones account types by whether a credit balance is the normal one', () => {
     expect(accountTypePillClass('ASSET')).toContain('pill-green')
     expect(accountTypePillClass('LIABILITY')).toContain('pill-red')

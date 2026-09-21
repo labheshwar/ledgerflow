@@ -15,6 +15,7 @@ import com.ledgerflow.domain.SystemAccountRole;
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.exception.PaymentException;
 import com.ledgerflow.money.Money;
+import com.ledgerflow.repository.BankAccountRepository;
 import com.ledgerflow.repository.ContactRepository;
 import com.ledgerflow.repository.PaymentAllocationRepository;
 import com.ledgerflow.repository.PaymentRepository;
@@ -51,6 +52,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentAllocationRepository paymentAllocationRepository;
     private final ContactRepository contactRepository;
+    private final BankAccountRepository bankAccountRepository;
     private final InvoiceService invoiceService;
     private final BillService billService;
     private final ChartOfAccountsService chartOfAccounts;
@@ -63,6 +65,7 @@ public class PaymentService {
             PaymentRepository paymentRepository,
             PaymentAllocationRepository paymentAllocationRepository,
             ContactRepository contactRepository,
+            BankAccountRepository bankAccountRepository,
             InvoiceService invoiceService,
             BillService billService,
             ChartOfAccountsService chartOfAccounts,
@@ -73,6 +76,7 @@ public class PaymentService {
         this.paymentRepository = paymentRepository;
         this.paymentAllocationRepository = paymentAllocationRepository;
         this.contactRepository = contactRepository;
+        this.bankAccountRepository = bankAccountRepository;
         this.invoiceService = invoiceService;
         this.billService = billService;
         this.chartOfAccounts = chartOfAccounts;
@@ -140,6 +144,9 @@ public class PaymentService {
         BigDecimal amount = requireAmount(draft.amount());
         LocalDate paymentDate = requireDate(draft.paymentDate());
         List<PaymentAllocationDraft> allocations = draft.allocations() == null ? List.of() : draft.allocations();
+        if (draft.bankAccountId() != null && !bankAccountRepository.existsById(draft.bankAccountId())) {
+            throw new PaymentException("BANK_ACCOUNT_NOT_FOUND", "No bank account with id " + draft.bankAccountId());
+        }
 
         BigDecimal allocatedTotal = BigDecimal.ZERO;
         for (PaymentAllocationDraft allocation : allocations) {
@@ -168,6 +175,7 @@ public class PaymentService {
             payment.setAmount(amount);
             payment.setCurrency(organizationService.baseCurrency());
             payment.setNotes(draft.notes() == null || draft.notes().isBlank() ? null : draft.notes().trim());
+            payment.setBankAccountId(draft.bankAccountId());
             Payment persisted = paymentRepository.save(payment);
 
             for (PaymentAllocationDraft allocation : allocations) {
@@ -211,7 +219,7 @@ public class PaymentService {
     private PostingCommand buildPostingCommand(Payment payment, BigDecimal allocatedTotal, String contactName, String idempotencyKey) {
         String currency = payment.getCurrency();
         BigDecimal excess = payment.getAmount().subtract(allocatedTotal);
-        var cash = chartOfAccounts.requireByRole(SystemAccountRole.CASH);
+        Long cashAccountId = cashAccountIdFor(payment);
 
         boolean received = payment.getDirection() == PaymentDirection.RECEIVED;
         JournalBuilder journal = JournalBuilder.forDate(payment.getPaymentDate())
@@ -219,7 +227,7 @@ public class PaymentService {
                 .describedAs((received ? "Payment received from " : "Payment sent to ") + contactName);
 
         if (received) {
-            journal.debit(cash.getId(), Money.of(payment.getAmount(), currency));
+            journal.debit(cashAccountId, Money.of(payment.getAmount(), currency));
             if (allocatedTotal.signum() > 0) {
                 var ar = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_RECEIVABLE);
                 journal.credit(ar.getId(), Money.of(allocatedTotal, currency));
@@ -237,9 +245,26 @@ public class PaymentService {
                 var prepayments = chartOfAccounts.requireByRole(SystemAccountRole.VENDOR_PREPAYMENTS);
                 journal.debit(prepayments.getId(), Money.of(excess, currency));
             }
-            journal.credit(cash.getId(), Money.of(payment.getAmount(), currency));
+            journal.credit(cashAccountId, Money.of(payment.getAmount(), currency));
         }
         return journal.build();
+    }
+
+    /**
+     * The organization's one system CASH account, unless this payment was
+     * scoped to a specific bank account -- the reconciliation workspace's
+     * own {@code settle}, which needs the resulting entry to land on that
+     * exact account so it can be matched back to the statement line that
+     * caused it.
+     */
+    private Long cashAccountIdFor(Payment payment) {
+        if (payment.getBankAccountId() == null) {
+            return chartOfAccounts.requireByRole(SystemAccountRole.CASH).getId();
+        }
+        return bankAccountRepository
+                .findById(payment.getBankAccountId())
+                .orElseThrow(() -> new NoSuchElementException("No bank account with id " + payment.getBankAccountId()))
+                .getAccountId();
     }
 
     public Payment voidPayment(Long id, String reason) {

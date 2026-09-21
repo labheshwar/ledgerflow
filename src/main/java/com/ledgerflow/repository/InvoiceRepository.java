@@ -39,4 +39,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
 
     /** Candidates for a payment's allocation picker -- only ever a specific contact's own open invoices. */
     List<Invoice> findByContactIdAndStatusOrderByDueDateAsc(Long contactId, InvoiceStatus status);
+
+    /** The reconciliation workspace's own candidate list -- every open invoice, not just one contact's. */
+    List<Invoice> findByStatusOrderByDueDateAsc(InvoiceStatus status);
 }
