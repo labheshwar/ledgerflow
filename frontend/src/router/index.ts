@@ -66,6 +66,26 @@ const router = createRouter({
       name: 'payment-detail',
       component: () => import('../views/PaymentDetailView.vue'),
     },
+    {
+      path: '/bank-accounts',
+      name: 'bank-accounts',
+      component: () => import('../views/BankAccountsView.vue'),
+    },
+    {
+      path: '/bank-accounts/:id',
+      name: 'bank-account-detail',
+      component: () => import('../views/BankAccountDetailView.vue'),
+    },
+    {
+      path: '/bank-accounts/:id/imports/new',
+      name: 'statement-import-new',
+      component: () => import('../views/StatementImportUploadView.vue'),
+    },
+    {
+      path: '/bank-accounts/:id/imports/:importId',
+      name: 'statement-import-detail',
+      component: () => import('../views/StatementImportView.vue'),
+    },
   ],
 })
 

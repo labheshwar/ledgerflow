@@ -338,3 +338,45 @@ export interface BillDetail extends BillListItem {
   notes: string | null
   lines: BillLine[]
 }
+
+export interface BankAccount {
+  id: number
+  accountId: number
+  accountName: string
+  name: string
+  accountNumberLast4: string | null
+  currency: string
+  archived: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type StatementImportStatus = 'UPLOADED' | 'PROCESSING' | 'PREVIEWED' | 'COMMITTED' | 'FAILED'
+
+export interface StatementImport {
+  id: number
+  bankAccountId: number
+  status: StatementImportStatus
+  originalFilename: string
+  dateColumn: string | null
+  descriptionColumn: string | null
+  amountColumn: string | null
+  externalIdColumn: string | null
+  totalRows: number
+  processedRows: number
+  newRows: number
+  duplicateRows: number
+  errorRows: number
+  errorMessage: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface StatementLine {
+  id: number
+  externalId: string
+  txnDate: string
+  description: string
+  amount: number
+  committed: boolean
+}

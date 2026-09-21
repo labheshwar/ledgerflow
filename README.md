@@ -117,6 +117,15 @@ a reconciliation process against an external source of truth, and a permanent au
   still lands somewhere real. An invoice's or a bill's `paid`/`balanceDue` is derived from every
   non-voided payment allocated against it, the same way `overdue` is derived, never stored;
   voiding a payment reverses its posting and reopens whatever it had settled.
+- **Bank statement import, as a four-step wizard** — upload a CSV, map its own column names to
+  date/description/amount/an optional reference, and a worker parses the whole file, computes
+  every row's `external_id` (the mapped reference, or a hash of date/description/amount when
+  the bank gives none) and stages only the rows that are not already committed for that bank
+  account. A partial unique index on `(bank_account_id, external_id) WHERE committed`, the same
+  guard shape bills' own duplicate-vendor-bill check uses, is what actually enforces the dedupe
+  — the preview is a courtesy, not the only thing standing in the way. Nothing here posts to the
+  ledger yet; a committed line is descriptive until milestone 14's reconciliation workspace
+  matches it against something real.
 
 ## Architecture
 ```mermaid
@@ -216,9 +225,9 @@ row-level security.
 
 **Stack**: Java 17, Spring Boot 3.5, PostgreSQL + Spring Data JPA, Flyway (versioned schema
 migrations), Redis, RabbitMQ, Kafka (KRaft, no ZooKeeper), MinIO (S3-compatible object storage),
-MailHog (a fake SMTP server for local development), openhtmltopdf, Micrometer Tracing, JWT
-(jjwt), Docker Compose, JUnit + Mockito for unit tests, Testcontainers for integration tests
-against real Postgres/Redis/RabbitMQ/Kafka/MinIO.
+MailHog (a fake SMTP server for local development), openhtmltopdf, Apache Commons CSV,
+Micrometer Tracing, JWT (jjwt), Docker Compose, JUnit + Mockito for unit tests, Testcontainers
+for integration tests against real Postgres/Redis/RabbitMQ/Kafka/MinIO.
 
 ## Getting started
 
@@ -471,6 +480,36 @@ written, not after. `POST /payments/{id}/void` reverses the posting and reopens 
 settled -- there is no edit, only voiding, the same rule invoices and bills already follow once
 posted.
 
+Register a bank account against an existing Cash-type account, then walk a CSV statement
+through the wizard -- upload, map, preview, commit:
+
+```bash
+BANK_ACCOUNT_ID=$(curl -s -X POST http://localhost:8080/bank-accounts \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"accountId": 1, "name": "Business Checking", "accountNumberLast4": "4321"}' \
+  | sed -E 's/.*"id":([0-9]+).*/\1/')
+
+IMPORT_ID=$(curl -s -X POST http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/imports \
+  -H "Authorization: Bearer $TOKEN" -F "file=@statement.csv" | sed -E 's/.*"importId":([0-9]+).*/\1/')
+# {"importId": 1, "headers": ["Posted Date", "Details", "Amount", "Ref"]} -- the file's own header row
+
+curl -s -X POST http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/imports/$IMPORT_ID/preview \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"dateColumn": "Posted Date", "descriptionColumn": "Details", "amountColumn": "Amount", "externalIdColumn": "Ref"}'
+# 202 Accepted -- a worker parses the whole file in the background
+
+curl -s http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/imports/$IMPORT_ID
+# poll until "status":"PREVIEWED" -- totalRows/newRows/duplicateRows/errorRows and
+# GET .../lines show what actually landed before anything is committed
+
+curl -s -X POST http://localhost:8080/bank-accounts/$BANK_ACCOUNT_ID/imports/$IMPORT_ID/commit \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Uploading the exact same file again previews the same rows as `duplicateRows`, not `newRows` --
+the point of `external_id`, mapped from the bank's own reference column or, absent one,
+computed from date/description/amount so a re-import of the same statement still dedupes.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -565,7 +604,10 @@ and bills' own — `BILL_NOT_EDITABLE`, `BILL_NOT_VOIDABLE`, `BILL_NOT_POSTED_YE
 `ALLOCATION_EXCEEDS_BALANCE`, `DOCUMENT_NOT_OPEN`, `WRONG_DOCUMENT_TYPE_FOR_DIRECTION`,
 `CONTACT_MISMATCH`, `PAYMENT_NOT_VOIDABLE`, `PAYMENT_NOT_POSTED_YET`, `INVALID_AMOUNT`
 (`CONTACT_NOT_A_CUSTOMER`, `CONTACT_NOT_A_VENDOR` and `INVALID_DATE` above are shared with
-payments too).
+payments too) — and the statement import wizard's own — `INVALID_MAPPING`, `EMPTY_FILE`,
+`INVALID_CSV`, `IMPORT_ALREADY_PROCESSING`, `IMPORT_ALREADY_COMMITTED`, `IMPORT_NOT_PREVIEWED`
+(`ACCOUNT_NOT_POSTABLE` and `ACCOUNT_ARCHIVED` above are reused, unchanged, for a bank account
+pointed at a heading or an archived account).
 
 ### Watching the event stream
 
@@ -621,8 +663,8 @@ so you can read the contract before you have a token.
 A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the
 original design mockups. It's a thin client over the API above — every page reads real data
 from the endpoints already described (accounts, transactions, contacts, tax rates, items,
-invoices, bills, payments, reconciliation, audit log) and nothing is mocked. `ADMIN` sees
-posting/reconciliation/editing controls; `VIEWER` gets the same pages read-only.
+invoices, bills, payments, bank accounts, reconciliation, audit log) and nothing is mocked.
+`ADMIN` sees posting/reconciliation/editing controls; `VIEWER` gets the same pages read-only.
 
 One page needs neither: `/public/invoices/:token`, reached from an invoice's own "Copy public
 link" action, renders outside the app shell entirely -- no sidebar, no login redirect, open to
@@ -688,9 +730,21 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   settling it in total even though each looked fine on its own. Real money at this scale would
   need `SELECT ... FOR UPDATE` or an equivalent lock across the read-then-write; skipped here as
   a demo-scale simplification, not because the race is not real.
-- **A payment always uses the organization's single Cash account** — there is no bank account
-  of its own to pick yet; milestone 13 adds those, and picking one for a payment is a natural
-  extension once they exist.
+- **A payment always uses the organization's single Cash account, not a chosen bank account** —
+  bank accounts exist now, but nothing yet lets a payment name which one moved; that wiring is
+  a natural extension of milestone 13, not milestone 13 itself.
+- **A committed statement line does not post or match anything yet** — it is descriptive,
+  waiting for milestone 14's reconciliation workspace to compare it against the ledger and turn
+  a match into an actual entry.
+- **The computed fallback `external_id` can collide** — when a bank's own CSV carries no
+  per-transaction reference, the fallback hash is date + description + amount; two genuinely
+  different transactions sharing all three on the same day are indistinguishable to it, and the
+  second is wrongly treated as a re-import of the first. A real per-transaction reference,
+  mapped explicitly, does not have this problem.
+- **Only ISO (`yyyy-MM-dd`) and US-style (`MM/dd/yyyy`) dates are recognized** — a statement in
+  another format fails every one of its own rows as an error rather than being guessed at.
+- **An uploaded statement has no size limit** — the same simplification `AttachmentService`
+  already accepts for a receipt.
 
 These are the natural next steps, not oversights being hidden.
 

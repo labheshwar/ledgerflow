@@ -77,6 +77,11 @@ const navItems = [
     path: '<rect x="1.5" y="4" width="13" height="8.5" rx="1.3"></rect><path d="M1.5 6.8h13"></path><circle cx="11" cy="9.8" r="1"></circle>',
   },
   {
+    to: '/bank-accounts',
+    label: 'Bank accounts',
+    path: '<path d="M1.5 6.5L8 2l6.5 4.5"></path><rect x="2.5" y="6.5" width="11" height="7" rx="0.8"></rect><path d="M5.5 9.5v2.3"></path><path d="M8 9.5v2.3"></path><path d="M10.5 9.5v2.3"></path>',
+  },
+  {
     to: '/items',
     label: 'Items',
     path: '<path d="M8 2.5l5 2.6v5.8l-5 2.6-5-2.6V5.1z"></path><path d="M3 5.1l5 2.6 5-2.6"></path><path d="M8 7.7v5.8"></path>',

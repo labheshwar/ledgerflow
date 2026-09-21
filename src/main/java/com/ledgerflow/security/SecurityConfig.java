@@ -94,6 +94,8 @@ public class SecurityConfig {
                         // voided by reversal, the same POST /{id}/void every other
                         // reversible document already uses.
                         .requestMatchers(HttpMethod.POST, "/payments/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/bank-accounts/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/bank-accounts/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

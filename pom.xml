@@ -23,6 +23,7 @@
         <springdoc.version>2.8.16</springdoc.version>
         <aws-sdk.version>2.29.52</aws-sdk.version>
         <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
+        <commons-csv.version>1.11.0</commons-csv.version>
     </properties>
 
     <dependencies>
@@ -123,6 +124,14 @@
             <groupId>com.openhtmltopdf</groupId>
             <artifactId>openhtmltopdf-pdfbox</artifactId>
             <version>${openhtmltopdf.version}</version>
+        </dependency>
+        <!-- Bank statement CSVs: quoted fields, embedded commas and escaped
+             quotes are all real in the wild, and a hand-rolled split(",")
+             gets every one of them wrong. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>${commons-csv.version}</version>
         </dependency>
 
         <!-- Ops -->

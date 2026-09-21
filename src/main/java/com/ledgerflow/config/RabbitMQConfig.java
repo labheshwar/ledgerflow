@@ -2,6 +2,7 @@ package com.ledgerflow.config;
 
 import com.ledgerflow.messaging.InvoiceEmailFailureRecoverer;
 import com.ledgerflow.messaging.ReconciliationFailureRecoverer;
+import com.ledgerflow.messaging.StatementImportFailureRecoverer;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
@@ -33,6 +34,14 @@ public class RabbitMQConfig {
     public static final String INVOICE_EMAIL_DLX = "invoice-email.dlx";
     public static final String INVOICE_EMAIL_DLQ = "invoice-email.dlq";
     public static final String INVOICE_EMAIL_DLQ_ROUTING_KEY = "invoice-email.send.dlq";
+
+    public static final String STATEMENT_IMPORT_EXCHANGE = "statement-import.exchange";
+    public static final String STATEMENT_IMPORT_QUEUE = "statement-import.queue";
+    public static final String STATEMENT_IMPORT_ROUTING_KEY = "statement-import.preview";
+
+    public static final String STATEMENT_IMPORT_DLX = "statement-import.dlx";
+    public static final String STATEMENT_IMPORT_DLQ = "statement-import.dlq";
+    public static final String STATEMENT_IMPORT_DLQ_ROUTING_KEY = "statement-import.preview.dlq";
 
     @Bean
     public DirectExchange reconciliationExchange() {
@@ -95,6 +104,36 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public DirectExchange statementImportExchange() {
+        return new DirectExchange(STATEMENT_IMPORT_EXCHANGE);
+    }
+
+    @Bean
+    public Queue statementImportQueue() {
+        return QueueBuilder.durable(STATEMENT_IMPORT_QUEUE).build();
+    }
+
+    @Bean
+    public Binding statementImportBinding(Queue statementImportQueue, DirectExchange statementImportExchange) {
+        return BindingBuilder.bind(statementImportQueue).to(statementImportExchange).with(STATEMENT_IMPORT_ROUTING_KEY);
+    }
+
+    @Bean
+    public DirectExchange statementImportDlx() {
+        return new DirectExchange(STATEMENT_IMPORT_DLX);
+    }
+
+    @Bean
+    public Queue statementImportDlq() {
+        return QueueBuilder.durable(STATEMENT_IMPORT_DLQ).build();
+    }
+
+    @Bean
+    public Binding statementImportDlqBinding(Queue statementImportDlq, DirectExchange statementImportDlx) {
+        return BindingBuilder.bind(statementImportDlq).to(statementImportDlx).with(STATEMENT_IMPORT_DLQ_ROUTING_KEY);
+    }
+
+    @Bean
     public Jackson2JsonMessageConverter rabbitMessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
@@ -142,6 +181,23 @@ public class RabbitMQConfig {
             ConnectionFactory connectionFactory,
             Jackson2JsonMessageConverter converter,
             InvoiceEmailFailureRecoverer recoverer) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(converter);
+        factory.setAdviceChain(RetryInterceptorBuilder.stateless()
+                .maxAttempts(3)
+                .backOffOptions(1000L, 2.0, 10_000L)
+                .recoverer(recoverer)
+                .build());
+        return factory;
+    }
+
+    /** A third factory, same reasoning as the invoice-email one above: its own failure recoverer, its own dead-letter queue. */
+    @Bean
+    public SimpleRabbitListenerContainerFactory statementImportListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            Jackson2JsonMessageConverter converter,
+            StatementImportFailureRecoverer recoverer) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(converter);
