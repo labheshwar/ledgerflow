@@ -55,6 +55,7 @@ function statusPillClass(invoice: InvoiceListItem): string {
 }
 function statusLabel(invoice: InvoiceListItem): string {
   if (invoice.status === 'SENT' && invoice.overdue) return 'OVERDUE'
+  if (invoice.status === 'SENT' && invoice.paid) return 'PAID'
   return invoice.status
 }
 </script>

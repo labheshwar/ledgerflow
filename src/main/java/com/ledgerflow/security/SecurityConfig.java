@@ -90,6 +90,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/bills/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/bills/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/bills/**").hasRole("ADMIN")
+                        // No PUT/DELETE here at all: a payment is never edited, only
+                        // voided by reversal, the same POST /{id}/void every other
+                        // reversible document already uses.
+                        .requestMatchers(HttpMethod.POST, "/payments/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

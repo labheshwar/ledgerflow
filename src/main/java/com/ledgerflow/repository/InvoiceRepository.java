@@ -36,4 +36,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
      * halves in the first place.
      */
     List<Invoice> findByStatusAndPostedTransactionIdIsNull(InvoiceStatus status);
+
+    /** Candidates for a payment's allocation picker -- only ever a specific contact's own open invoices. */
+    List<Invoice> findByContactIdAndStatusOrderByDueDateAsc(Long contactId, InvoiceStatus status);
 }

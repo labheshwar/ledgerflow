@@ -43,7 +43,9 @@ public class RlsPolicyVerifier implements ApplicationRunner {
             "invoice_lines",
             "attachments",
             "bills",
-            "bill_lines");
+            "bill_lines",
+            "payments",
+            "payment_allocations");
     // invoice_public_links is deliberately not here -- see V18's own
     // comment on that table for why it carries no tenant policy at all.
 

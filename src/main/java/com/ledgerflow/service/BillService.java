@@ -106,6 +106,11 @@ public class BillService {
         return billLineRepository.findByBillIdOrderByLineOrderAsc(id);
     }
 
+    /** A payment's allocation picker only ever offers a contact's own open bills. */
+    public List<Bill> findOpenForContact(Long contactId) {
+        return billRepository.findByContactIdAndStatusOrderByDueDateAsc(contactId, BillStatus.OPEN);
+    }
+
     public InvoiceTotals totalsFor(List<BillLine> lines) {
         return InvoiceTotalsCalculator.compute(toCalculatorInputs(lines));
     }

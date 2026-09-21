@@ -56,6 +56,7 @@ function statusPillClass(bill: BillListItem): string {
 }
 function statusLabel(bill: BillListItem): string {
   if (bill.status === 'OPEN' && bill.overdue) return 'OVERDUE'
+  if (bill.status === 'OPEN' && bill.paid) return 'PAID'
   return bill.status
 }
 </script>

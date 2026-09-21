@@ -8,10 +8,12 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 /**
- * @param overdue derived from {@code status} and {@code dueDate} on every
- *        read, never stored -- a due date does not change, so there is
- *        nothing to keep in sync. "Paid" is not derivable yet: nothing
- *        records a payment against an invoice until milestone 12.
+ * @param amountPaid summed from every non-voided payment allocated against
+ *        this invoice, never stored -- see {@code PaymentAllocationRepository.amountPaidFor}.
+ * @param paid derived from {@code amountPaid} reaching {@code grandTotal}, not a status of its own:
+ *        an invoice stays SENT whether it is owed in full, in part, or not at all.
+ * @param overdue derived from {@code status}, {@code paid} and {@code dueDate} on every
+ *        read, never stored -- a fully paid invoice is not overdue no matter how old its due date is.
  */
 public record InvoiceResponse(
         Long id,
@@ -25,13 +27,18 @@ public record InvoiceResponse(
         BigDecimal subtotal,
         BigDecimal taxTotal,
         BigDecimal grandTotal,
+        BigDecimal amountPaid,
+        BigDecimal balanceDue,
+        boolean paid,
         Long postedTransactionId,
         boolean overdue,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt) {
 
-    public static InvoiceResponse from(Invoice invoice, String contactName, InvoiceTotals totals) {
-        boolean overdue = invoice.getStatus() == InvoiceStatus.SENT && invoice.getDueDate().isBefore(LocalDate.now());
+    public static InvoiceResponse from(Invoice invoice, String contactName, InvoiceTotals totals, BigDecimal amountPaid) {
+        BigDecimal balanceDue = totals.grandTotal().subtract(amountPaid);
+        boolean paid = invoice.getStatus() == InvoiceStatus.SENT && balanceDue.signum() <= 0;
+        boolean overdue = invoice.getStatus() == InvoiceStatus.SENT && !paid && invoice.getDueDate().isBefore(LocalDate.now());
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getContactId(),
@@ -44,6 +51,9 @@ public record InvoiceResponse(
                 totals.subtotal(),
                 totals.taxTotal(),
                 totals.grandTotal(),
+                amountPaid,
+                balanceDue,
+                paid,
                 invoice.getPostedTransactionId(),
                 overdue,
                 invoice.getCreatedAt(),

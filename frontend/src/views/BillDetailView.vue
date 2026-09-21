@@ -173,6 +173,7 @@ function statusPillClass(): string {
 function statusLabel(): string {
   if (!bill.value) return ''
   if (bill.value.status === 'OPEN' && bill.value.overdue) return 'OVERDUE'
+  if (bill.value.status === 'OPEN' && bill.value.paid) return 'PAID'
   return bill.value.status
 }
 </script>
@@ -295,6 +296,29 @@ function statusLabel(): string {
             <div v-else-if="bill.status === 'OPEN'" class="meta-row">
               <span class="k">Journal</span><span class="v">posting…</span>
             </div>
+            <template v-if="bill.status === 'OPEN'">
+              <div class="meta-row">
+                <span class="k">Paid</span
+                ><span class="v">{{ formatMoney(bill.amountPaid, bill.currency) }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="k">Balance due</span
+                ><span class="v">{{ formatMoney(bill.balanceDue, bill.currency) }}</span>
+              </div>
+            </template>
+          </div>
+
+          <div v-if="auth.isAdmin && bill.status === 'OPEN' && !bill.paid" class="card">
+            <h2>Payment</h2>
+            <p class="notes" style="margin-top: 0">
+              {{ formatMoney(bill.balanceDue, bill.currency) }} still owed on this bill.
+            </p>
+            <RouterLink
+              class="btn btn-primary"
+              :to="`/payments/new?contactId=${bill.contactId}&direction=PAID`"
+            >
+              Record a payment
+            </RouterLink>
           </div>
 
           <div class="card">

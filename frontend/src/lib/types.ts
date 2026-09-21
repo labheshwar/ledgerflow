@@ -13,6 +13,7 @@ export type SystemAccountRole =
   | 'FX_GAIN_LOSS'
   | 'ROUNDING'
   | 'CUSTOMER_PREPAYMENTS'
+  | 'VENDOR_PREPAYMENTS'
 
 export type EntryDirection = 'DEBIT' | 'CREDIT'
 export type TransactionStatus = 'POSTED'
@@ -230,8 +231,13 @@ export interface InvoiceListItem {
   subtotal: number
   taxTotal: number
   grandTotal: number
+  /** Summed from every non-voided payment allocated against this invoice. */
+  amountPaid: number
+  balanceDue: number
+  /** Derived from amountPaid reaching grandTotal, not a status of its own. */
+  paid: boolean
   postedTransactionId: number | null
-  /** Derived from status and dueDate on every read, never stored. */
+  /** Derived from status, paid and dueDate on every read, never stored. */
   overdue: boolean
   createdAt: string
   updatedAt: string
@@ -248,6 +254,41 @@ export interface Attachment {
   contentType: string
   sizeBytes: number
   createdAt: string
+}
+
+export type PaymentDirection = 'RECEIVED' | 'PAID'
+export type PaymentStatus = 'POSTED' | 'VOID'
+export type DocumentType = 'INVOICE' | 'BILL'
+
+export interface PaymentAllocation {
+  id: number
+  documentType: DocumentType
+  documentId: number
+  amount: number
+}
+
+export interface Payment {
+  id: number
+  contactId: number
+  contactName: string
+  direction: PaymentDirection
+  status: PaymentStatus
+  paymentDate: string
+  amount: number
+  currency: string
+  notes: string | null
+  postedTransactionId: number | null
+  createdAt: string
+  allocations: PaymentAllocation[]
+}
+
+/** One invoice or bill still owed against, as offered by a payment's own allocation picker. */
+export interface OpenDocument {
+  documentType: DocumentType
+  documentId: number
+  number: string | null
+  dueDate: string
+  balance: number
 }
 
 export type BillStatus = 'DRAFT' | 'OPEN' | 'VOID'
@@ -281,8 +322,13 @@ export interface BillListItem {
   subtotal: number
   taxTotal: number
   grandTotal: number
+  /** Summed from every non-voided payment allocated against this bill. */
+  amountPaid: number
+  balanceDue: number
+  /** Derived from amountPaid reaching grandTotal, not a status of its own. */
+  paid: boolean
   postedTransactionId: number | null
-  /** Derived from status and dueDate on every read, never stored. */
+  /** Derived from status, paid and dueDate on every read, never stored. */
   overdue: boolean
   createdAt: string
   updatedAt: string

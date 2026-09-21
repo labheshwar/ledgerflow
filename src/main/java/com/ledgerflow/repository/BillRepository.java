@@ -38,4 +38,7 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
 
     /** The duplicate-vendor-bill guard's own read -- see {@code Bill}'s Javadoc on {@code vendorReference}. */
     List<Bill> findByContactIdAndVendorReference(Long contactId, String vendorReference);
+
+    /** Candidates for a payment's allocation picker -- only ever a specific contact's own open bills. */
+    List<Bill> findByContactIdAndStatusOrderByDueDateAsc(Long contactId, BillStatus status);
 }

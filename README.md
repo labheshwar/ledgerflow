@@ -109,6 +109,14 @@ a reconciliation process against an external source of truth, and a permanent au
   `(org_id, contact_id, vendor_reference)` that excludes voided rows, stops the same paper bill
   being keyed in twice while still letting a voided-and-corrected entry reuse its reference.
   Receipts attach the same way an invoice's documents do.
+- **Payments settle several invoices or bills at once** — one payment carries an amount and a
+  list of allocations, each naming an invoice or a bill and how much of the payment settles it.
+  Received posts `DR Cash / CR Accounts Receivable`; paid posts `DR Accounts Payable / CR Cash`
+  — and whatever the allocations don't add up to spending posts to the customer's or vendor's
+  prepayment account instead, so money received or paid before it was earmarked for anything
+  still lands somewhere real. An invoice's or a bill's `paid`/`balanceDue` is derived from every
+  non-voided payment allocated against it, the same way `overdue` is derived, never stored;
+  voiding a payment reverses its posting and reopens whatever it had settled.
 
 ## Architecture
 ```mermaid
@@ -439,6 +447,30 @@ pair again, before that first bill is voided, is refused as `DUPLICATE_VENDOR_BI
 that stops one paper bill from being keyed in twice. Attachments work exactly like an invoice's,
 at `/bills/{id}/attachments`.
 
+Record one payment that settles the invoice above and any others for the same customer in one
+go -- `GET /payments/open-documents` is what a client would poll first to see what is left to
+settle:
+
+```bash
+curl -s "http://localhost:8080/payments/open-documents?contactId=1&direction=RECEIVED" \
+  -H "Authorization: Bearer $TOKEN"
+# [{"documentType":"INVOICE","documentId":1,"number":"INV-00001","dueDate":"2026-10-21","balance":115.00}, ...]
+
+curl -s -X POST http://localhost:8080/payments \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "contactId": 1, "direction": "RECEIVED", "paymentDate": "2026-09-21", "amount": 115.00,
+    "allocations": [{"documentType": "INVOICE", "documentId": 1, "amount": 115.00}]
+  }'
+```
+
+The invoice's own `GET /invoices/1` now shows `"paid": true, "balanceDue": 0.00`. Allocating
+more than a payment's own amount is `OVER_ALLOCATED`; allocating more than one document's own
+remaining balance is `ALLOCATION_EXCEEDS_BALANCE`, checked and refused before anything is
+written, not after. `POST /payments/{id}/void` reverses the posting and reopens whatever it had
+settled -- there is no edit, only voiding, the same rule invoices and bills already follow once
+posted.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -529,7 +561,11 @@ these too) — invoices' own — `INVOICE_NOT_EDITABLE`, `INVOICE_NOT_VOIDABLE`,
 and bills' own — `BILL_NOT_EDITABLE`, `BILL_NOT_VOIDABLE`, `BILL_NOT_POSTED_YET`,
 `NOTHING_TO_BILL`, `DUPLICATE_VENDOR_BILL`, `CONTACT_NOT_A_VENDOR`, `INVALID_VENDOR_REFERENCE`
 (`NO_LINES`, `INVALID_LINE`, `INVALID_ITEM`, `INVALID_TAX_RATE`, `INVALID_DUE_DATE` and
-`INVALID_DATE` above are shared with bills too).
+`INVALID_DATE` above are shared with bills too) — and payments' own — `OVER_ALLOCATED`,
+`ALLOCATION_EXCEEDS_BALANCE`, `DOCUMENT_NOT_OPEN`, `WRONG_DOCUMENT_TYPE_FOR_DIRECTION`,
+`CONTACT_MISMATCH`, `PAYMENT_NOT_VOIDABLE`, `PAYMENT_NOT_POSTED_YET`, `INVALID_AMOUNT`
+(`CONTACT_NOT_A_CUSTOMER`, `CONTACT_NOT_A_VENDOR` and `INVALID_DATE` above are shared with
+payments too).
 
 ### Watching the event stream
 
@@ -585,8 +621,8 @@ so you can read the contract before you have a token.
 A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the
 original design mockups. It's a thin client over the API above — every page reads real data
 from the endpoints already described (accounts, transactions, contacts, tax rates, items,
-invoices, reconciliation, audit log) and nothing is mocked. `ADMIN` sees posting/reconciliation/
-editing controls; `VIEWER` gets the same pages read-only.
+invoices, bills, payments, reconciliation, audit log) and nothing is mocked. `ADMIN` sees
+posting/reconciliation/editing controls; `VIEWER` gets the same pages read-only.
 
 One page needs neither: `/public/invoices/:token`, reached from an invoice's own "Copy public
 link" action, renders outside the app shell entirely -- no sidebar, no login redirect, open to
@@ -644,13 +680,17 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   an architecture change.
 - **Attachments have no size limit or content scanning** — anything a request can upload,
   today's `AttachmentService` stores. Fine for a local demo, not for a public-facing deployment.
-- **An invoice or bill can be overdue but never paid, yet** — `overdue` is derived from
-  `status` and `dueDate` and is real today. `paid` is not derivable at all until something
-  records a payment against one, which milestone 12 adds; until then every invoice's and bill's
-  balance is either its full amount or zero, on voiding.
 - **A bill line's account is not validated until posting** — the same rule a manual journal
   entry already follows: an archived or heading account is rejected by `PostingService` when
   the bill is posted, not earlier when the line is saved as a draft.
+- **A payment's own validation is not race-safe** — two payments allocated against the same
+  invoice at the same moment can both read the same "remaining balance" and both pass, over-
+  settling it in total even though each looked fine on its own. Real money at this scale would
+  need `SELECT ... FOR UPDATE` or an equivalent lock across the read-then-write; skipped here as
+  a demo-scale simplification, not because the race is not real.
+- **A payment always uses the organization's single Cash account** — there is no bank account
+  of its own to pick yet; milestone 13 adds those, and picking one for a payment is a natural
+  extension once they exist.
 
 These are the natural next steps, not oversights being hidden.
 

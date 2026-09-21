@@ -1,6 +1,7 @@
 package com.ledgerflow.web;
 
 import com.ledgerflow.domain.Contact;
+import com.ledgerflow.domain.DocumentType;
 import com.ledgerflow.domain.Invoice;
 import com.ledgerflow.domain.InvoicePublicLink;
 import com.ledgerflow.repository.ContactRepository;
@@ -8,6 +9,7 @@ import com.ledgerflow.repository.InvoicePublicLinkRepository;
 import com.ledgerflow.service.InvoiceDeliveryService;
 import com.ledgerflow.service.InvoiceService;
 import com.ledgerflow.service.InvoiceTotals;
+import com.ledgerflow.service.PaymentService;
 import com.ledgerflow.tenancy.TenantContext;
 import com.ledgerflow.web.dto.InvoiceDetailResponse;
 import java.util.NoSuchElementException;
@@ -35,16 +37,19 @@ public class PublicInvoiceController {
     private final InvoicePublicLinkRepository invoicePublicLinkRepository;
     private final InvoiceService invoiceService;
     private final InvoiceDeliveryService invoiceDeliveryService;
+    private final PaymentService paymentService;
     private final ContactRepository contactRepository;
 
     public PublicInvoiceController(
             InvoicePublicLinkRepository invoicePublicLinkRepository,
             InvoiceService invoiceService,
             InvoiceDeliveryService invoiceDeliveryService,
+            PaymentService paymentService,
             ContactRepository contactRepository) {
         this.invoicePublicLinkRepository = invoicePublicLinkRepository;
         this.invoiceService = invoiceService;
         this.invoiceDeliveryService = invoiceDeliveryService;
+        this.paymentService = paymentService;
         this.contactRepository = contactRepository;
     }
 
@@ -56,7 +61,8 @@ public class PublicInvoiceController {
             var lines = invoiceService.getLines(invoice.getId());
             InvoiceTotals totals = invoiceService.totalsFor(lines);
             String contactName = contactRepository.findById(invoice.getContactId()).map(Contact::getName).orElse("Customer");
-            return InvoiceDetailResponse.from(invoice, contactName, lines, totals);
+            var amountPaid = paymentService.amountPaidFor(DocumentType.INVOICE, invoice.getId());
+            return InvoiceDetailResponse.from(invoice, contactName, lines, totals, amountPaid);
         });
     }
 

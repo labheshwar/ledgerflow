@@ -24,14 +24,20 @@ public record BillDetailResponse(
         BigDecimal subtotal,
         BigDecimal taxTotal,
         BigDecimal grandTotal,
+        BigDecimal amountPaid,
+        BigDecimal balanceDue,
+        boolean paid,
         Long postedTransactionId,
         boolean overdue,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,
         List<BillLineResponse> lines) {
 
-    public static BillDetailResponse from(Bill bill, String contactName, List<BillLine> lines, InvoiceTotals totals) {
-        boolean overdue = bill.getStatus() == BillStatus.OPEN && bill.getDueDate().isBefore(LocalDate.now());
+    public static BillDetailResponse from(
+            Bill bill, String contactName, List<BillLine> lines, InvoiceTotals totals, BigDecimal amountPaid) {
+        BigDecimal balanceDue = totals.grandTotal().subtract(amountPaid);
+        boolean paid = bill.getStatus() == BillStatus.OPEN && balanceDue.signum() <= 0;
+        boolean overdue = bill.getStatus() == BillStatus.OPEN && !paid && bill.getDueDate().isBefore(LocalDate.now());
         List<BillLineResponse> lineResponses = IntStream.range(0, lines.size())
                 .mapToObj(i -> BillLineResponse.from(lines.get(i), totals.lines().get(i)))
                 .toList();
@@ -49,6 +55,9 @@ public record BillDetailResponse(
                 totals.subtotal(),
                 totals.taxTotal(),
                 totals.grandTotal(),
+                amountPaid,
+                balanceDue,
+                paid,
                 bill.getPostedTransactionId(),
                 overdue,
                 bill.getCreatedAt(),

@@ -203,6 +203,7 @@ function statusPillClass(): string {
 function statusLabel(): string {
   if (!invoice.value) return ''
   if (invoice.value.status === 'SENT' && invoice.value.overdue) return 'OVERDUE'
+  if (invoice.value.status === 'SENT' && invoice.value.paid) return 'PAID'
   return invoice.value.status
 }
 </script>
@@ -344,6 +345,29 @@ function statusLabel(): string {
             <div v-else-if="invoice.status === 'SENT'" class="meta-row">
               <span class="k">Journal</span><span class="v">posting…</span>
             </div>
+            <template v-if="invoice.status === 'SENT'">
+              <div class="meta-row">
+                <span class="k">Paid</span
+                ><span class="v">{{ formatMoney(invoice.amountPaid, invoice.currency) }}</span>
+              </div>
+              <div class="meta-row">
+                <span class="k">Balance due</span>
+                <span class="v">{{ formatMoney(invoice.balanceDue, invoice.currency) }}</span>
+              </div>
+            </template>
+          </div>
+
+          <div v-if="auth.isAdmin && invoice.status === 'SENT' && !invoice.paid" class="card">
+            <h2>Payment</h2>
+            <p class="notes" style="margin-top: 0">
+              {{ formatMoney(invoice.balanceDue, invoice.currency) }} still owed on this invoice.
+            </p>
+            <RouterLink
+              class="btn btn-primary"
+              :to="`/payments/new?contactId=${invoice.contactId}&direction=RECEIVED`"
+            >
+              Record a payment
+            </RouterLink>
           </div>
 
           <div v-if="auth.isAdmin && invoice.status === 'SENT'" class="card">

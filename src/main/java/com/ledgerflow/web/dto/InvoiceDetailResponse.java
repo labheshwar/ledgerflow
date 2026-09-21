@@ -23,6 +23,9 @@ public record InvoiceDetailResponse(
         BigDecimal subtotal,
         BigDecimal taxTotal,
         BigDecimal grandTotal,
+        BigDecimal amountPaid,
+        BigDecimal balanceDue,
+        boolean paid,
         Long postedTransactionId,
         boolean overdue,
         OffsetDateTime createdAt,
@@ -30,8 +33,10 @@ public record InvoiceDetailResponse(
         List<InvoiceLineResponse> lines) {
 
     public static InvoiceDetailResponse from(
-            Invoice invoice, String contactName, List<InvoiceLine> lines, InvoiceTotals totals) {
-        boolean overdue = invoice.getStatus() == InvoiceStatus.SENT && invoice.getDueDate().isBefore(LocalDate.now());
+            Invoice invoice, String contactName, List<InvoiceLine> lines, InvoiceTotals totals, BigDecimal amountPaid) {
+        BigDecimal balanceDue = totals.grandTotal().subtract(amountPaid);
+        boolean paid = invoice.getStatus() == InvoiceStatus.SENT && balanceDue.signum() <= 0;
+        boolean overdue = invoice.getStatus() == InvoiceStatus.SENT && !paid && invoice.getDueDate().isBefore(LocalDate.now());
         List<InvoiceLineResponse> lineResponses = IntStream.range(0, lines.size())
                 .mapToObj(i -> InvoiceLineResponse.from(lines.get(i), totals.lines().get(i)))
                 .toList();
@@ -48,6 +53,9 @@ public record InvoiceDetailResponse(
                 totals.subtotal(),
                 totals.taxTotal(),
                 totals.grandTotal(),
+                amountPaid,
+                balanceDue,
+                paid,
                 invoice.getPostedTransactionId(),
                 overdue,
                 invoice.getCreatedAt(),

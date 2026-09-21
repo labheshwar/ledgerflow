@@ -103,6 +103,11 @@ public class InvoiceService {
         return invoiceLineRepository.findByInvoiceIdOrderByLineOrderAsc(id);
     }
 
+    /** A payment's allocation picker only ever offers a contact's own sent invoices. */
+    public List<Invoice> findOpenForContact(Long contactId) {
+        return invoiceRepository.findByContactIdAndStatusOrderByDueDateAsc(contactId, InvoiceStatus.SENT);
+    }
+
     public InvoiceTotals totalsFor(List<InvoiceLine> lines) {
         return InvoiceTotalsCalculator.compute(toCalculatorInputs(lines));
     }

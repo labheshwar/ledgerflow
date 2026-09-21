@@ -2,6 +2,7 @@ package com.ledgerflow.web;
 
 import com.ledgerflow.domain.Attachment;
 import com.ledgerflow.domain.Contact;
+import com.ledgerflow.domain.DocumentType;
 import com.ledgerflow.domain.Invoice;
 import com.ledgerflow.domain.InvoiceLine;
 import com.ledgerflow.domain.InvoiceStatus;
@@ -10,6 +11,7 @@ import com.ledgerflow.service.AttachmentService;
 import com.ledgerflow.service.InvoiceDeliveryService;
 import com.ledgerflow.service.InvoiceService;
 import com.ledgerflow.service.InvoiceTotals;
+import com.ledgerflow.service.PaymentService;
 import com.ledgerflow.web.dto.AttachmentResponse;
 import com.ledgerflow.web.dto.EmailInvoiceRequest;
 import com.ledgerflow.web.dto.InvoiceDetailResponse;
@@ -21,6 +23,7 @@ import com.ledgerflow.web.dto.VoidInvoiceRequest;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -58,16 +61,19 @@ public class InvoiceController {
     private final InvoiceService invoiceService;
     private final InvoiceDeliveryService invoiceDeliveryService;
     private final AttachmentService attachmentService;
+    private final PaymentService paymentService;
     private final ContactRepository contactRepository;
 
     public InvoiceController(
             InvoiceService invoiceService,
             InvoiceDeliveryService invoiceDeliveryService,
             AttachmentService attachmentService,
+            PaymentService paymentService,
             ContactRepository contactRepository) {
         this.invoiceService = invoiceService;
         this.invoiceDeliveryService = invoiceDeliveryService;
         this.attachmentService = attachmentService;
+        this.paymentService = paymentService;
         this.contactRepository = contactRepository;
     }
 
@@ -184,13 +190,15 @@ public class InvoiceController {
     private InvoiceResponse toResponse(Invoice invoice) {
         List<InvoiceLine> lines = invoiceService.getLines(invoice.getId());
         InvoiceTotals totals = invoiceService.totalsFor(lines);
-        return InvoiceResponse.from(invoice, contactName(invoice.getContactId()), totals);
+        BigDecimal amountPaid = paymentService.amountPaidFor(DocumentType.INVOICE, invoice.getId());
+        return InvoiceResponse.from(invoice, contactName(invoice.getContactId()), totals, amountPaid);
     }
 
     private InvoiceDetailResponse toDetailResponse(Invoice invoice) {
         List<InvoiceLine> lines = invoiceService.getLines(invoice.getId());
         InvoiceTotals totals = invoiceService.totalsFor(lines);
-        return InvoiceDetailResponse.from(invoice, contactName(invoice.getContactId()), lines, totals);
+        BigDecimal amountPaid = paymentService.amountPaidFor(DocumentType.INVOICE, invoice.getId());
+        return InvoiceDetailResponse.from(invoice, contactName(invoice.getContactId()), lines, totals, amountPaid);
     }
 
     private String contactName(Long contactId) {

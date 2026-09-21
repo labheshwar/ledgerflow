@@ -5,10 +5,12 @@ import com.ledgerflow.domain.Bill;
 import com.ledgerflow.domain.BillLine;
 import com.ledgerflow.domain.BillStatus;
 import com.ledgerflow.domain.Contact;
+import com.ledgerflow.domain.DocumentType;
 import com.ledgerflow.repository.ContactRepository;
 import com.ledgerflow.service.AttachmentService;
 import com.ledgerflow.service.BillService;
 import com.ledgerflow.service.InvoiceTotals;
+import com.ledgerflow.service.PaymentService;
 import com.ledgerflow.web.dto.AttachmentResponse;
 import com.ledgerflow.web.dto.BillDetailResponse;
 import com.ledgerflow.web.dto.BillRequest;
@@ -18,6 +20,7 @@ import com.ledgerflow.web.dto.VoidBillRequest;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -53,11 +56,17 @@ public class BillController {
 
     private final BillService billService;
     private final AttachmentService attachmentService;
+    private final PaymentService paymentService;
     private final ContactRepository contactRepository;
 
-    public BillController(BillService billService, AttachmentService attachmentService, ContactRepository contactRepository) {
+    public BillController(
+            BillService billService,
+            AttachmentService attachmentService,
+            PaymentService paymentService,
+            ContactRepository contactRepository) {
         this.billService = billService;
         this.attachmentService = attachmentService;
+        this.paymentService = paymentService;
         this.contactRepository = contactRepository;
     }
 
@@ -144,13 +153,15 @@ public class BillController {
     private BillResponse toResponse(Bill bill) {
         List<BillLine> lines = billService.getLines(bill.getId());
         InvoiceTotals totals = billService.totalsFor(lines);
-        return BillResponse.from(bill, contactName(bill.getContactId()), totals);
+        BigDecimal amountPaid = paymentService.amountPaidFor(DocumentType.BILL, bill.getId());
+        return BillResponse.from(bill, contactName(bill.getContactId()), totals, amountPaid);
     }
 
     private BillDetailResponse toDetailResponse(Bill bill) {
         List<BillLine> lines = billService.getLines(bill.getId());
         InvoiceTotals totals = billService.totalsFor(lines);
-        return BillDetailResponse.from(bill, contactName(bill.getContactId()), lines, totals);
+        BigDecimal amountPaid = paymentService.amountPaidFor(DocumentType.BILL, bill.getId());
+        return BillDetailResponse.from(bill, contactName(bill.getContactId()), lines, totals, amountPaid);
     }
 
     private String contactName(Long contactId) {

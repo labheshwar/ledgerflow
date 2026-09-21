@@ -57,5 +57,8 @@ public enum SystemAccountRole {
     ROUNDING,
 
     /** Money received before anything was invoiced for it. */
-    CUSTOMER_PREPAYMENTS
+    CUSTOMER_PREPAYMENTS,
+
+    /** Money paid to a vendor before it was allocated to any of their bills. */
+    VENDOR_PREPAYMENTS
 }

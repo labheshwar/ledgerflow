@@ -79,6 +79,8 @@ final class DefaultChartOfAccounts {
                     .describedAs("What customers owe you"),
             Seed.of("1200", "Tax Receivable", ASSET, SystemAccountRole.TAX_RECEIVABLE)
                     .describedAs("Sales tax paid to suppliers and reclaimable"),
+            Seed.of("1300", "Vendor Prepayments", ASSET, SystemAccountRole.VENDOR_PREPAYMENTS)
+                    .describedAs("Money paid to a vendor before it was allocated to any of their bills"),
 
             // --- Liabilities ---
             Seed.of("2000", "Accounts Payable", LIABILITY, SystemAccountRole.ACCOUNTS_PAYABLE)
