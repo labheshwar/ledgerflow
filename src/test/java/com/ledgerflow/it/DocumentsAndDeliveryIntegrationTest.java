@@ -59,7 +59,7 @@ class DocumentsAndDeliveryIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void aPublicLinkIsTheSameTokenEveryTimeItIsRequested() {
-        Invoice invoice = draftInvoice();
+        Invoice invoice = invoiceService.send(draftInvoice().getId());
 
         String first = invoiceDeliveryService.ensurePublicLink(invoice.getId());
         String second = invoiceDeliveryService.ensurePublicLink(invoice.getId());
