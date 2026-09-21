@@ -21,6 +21,8 @@
         <java.version>17</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <springdoc.version>2.8.16</springdoc.version>
+        <aws-sdk.version>2.29.52</aws-sdk.version>
+        <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
     </properties>
 
     <dependencies>
@@ -102,6 +104,27 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Documents & delivery: rendered invoice PDFs, an S3-compatible
+             object store to hold them and any other attachment, and SMTP to
+             mail them out. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${aws-sdk.version}</version>
+        </dependency>
+        <!-- Renders an invoice to a PDF from the same data the web view
+             already reads, so there is one source of truth for the layout,
+             not two kept in sync by hand. -->
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>${openhtmltopdf.version}</version>
+        </dependency>
+
         <!-- Ops -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -149,6 +172,11 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>minio</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

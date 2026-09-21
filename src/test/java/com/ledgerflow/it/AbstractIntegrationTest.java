@@ -11,9 +11,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.MinIOContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * Real Postgres, Redis, RabbitMQ and Kafka, started once and shared across every
@@ -86,11 +88,42 @@ public abstract class AbstractIntegrationTest {
     /** Single-node KRaft, configured exactly as the compose stack is. */
     static final KRaftKafkaContainer KAFKA = new KRaftKafkaContainer("apache/kafka:3.9.0");
 
+    // quay.io, not Docker Hub -- see docker-compose.yml's own comment on the
+    // same image. MinIOContainer's own compatibility check only recognizes
+    // the docker.io/minio/minio name by default, so the quay.io one needs
+    // to be declared explicitly; it is the same image, just a different
+    // registry.
+    //
+    // The default wait strategy also gets overridden here, same reason and
+    // same fix as Redis's above: MinIOContainer's own default probes the
+    // mapped host port from outside the container, which hangs on this host
+    // even though the container logs "API:" -- its own readiness line --
+    // within a second or two.
+    static final MinIOContainer MINIO = new MinIOContainer(
+                    DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-04-08T15-41-24Z")
+                            .asCompatibleSubstituteFor("minio/minio"))
+            .withUserName("ledgerflow")
+            .withPassword("test-minio-password")
+            .waitingFor(Wait.forLogMessage(".*API:.*\\n", 1))
+            .withStartupTimeout(Duration.ofMinutes(2));
+
+    /**
+     * A log-based wait for the same reason Redis's own is above: MailHog has
+     * no official Testcontainers module, and this host's external port
+     * probes cannot be trusted regardless.
+     */
+    static final GenericContainer<?> MAILHOG = new GenericContainer<>("mailhog/mailhog:v1.0.1")
+            .withExposedPorts(1025, 8025)
+            .waitingFor(Wait.forLogMessage(".*\\[SMTP\\] Binding to address.*\\n", 1))
+            .withStartupTimeout(Duration.ofMinutes(2));
+
     static {
         POSTGRES.start();
         RABBITMQ.start();
         REDIS.start();
         KAFKA.start();
+        MINIO.start();
+        MAILHOG.start();
     }
 
     @DynamicPropertySource
@@ -124,6 +157,20 @@ public abstract class AbstractIntegrationTest {
 
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
         registry.add("spring.kafka.consumer.group-id", () -> "ledgerflow-test");
+
+        registry.add("ledgerflow.storage.endpoint", MINIO::getS3URL);
+        registry.add("ledgerflow.storage.access-key", MINIO::getUserName);
+        registry.add("ledgerflow.storage.secret-key", MINIO::getPassword);
+        registry.add("ledgerflow.storage.bucket", () -> "ledgerflow-test-documents");
+        registry.add("ledgerflow.public-base-url", () -> "http://localhost:5173");
+
+        registry.add("spring.mail.host", MAILHOG::getHost);
+        registry.add("spring.mail.port", () -> MAILHOG.getMappedPort(1025));
+    }
+
+    /** MailHog's own REST API, for asserting on what was actually delivered rather than trusting the send call alone. */
+    protected static String mailhogApiUrl() {
+        return "http://%s:%d/api/v2/messages".formatted(MAILHOG.getHost(), MAILHOG.getMappedPort(8025));
     }
 
     /**

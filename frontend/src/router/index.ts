@@ -47,13 +47,24 @@ const router = createRouter({
       name: 'invoice-detail',
       component: () => import('../views/InvoiceDetailView.vue'),
     },
+    {
+      path: '/public/invoices/:token',
+      name: 'public-invoice',
+      component: () => import('../views/PublicInvoiceView.vue'),
+    },
   ],
 })
 
 const PUBLIC_ROUTES = new Set(['login', 'signup'])
+// Open to anyone with the link, signed in or not -- unlike login/signup,
+// an authenticated admin previewing what a customer sees should not be
+// bounced to their own dashboard.
+const ALWAYS_OPEN_ROUTES = new Set(['public-invoice'])
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  if (ALWAYS_OPEN_ROUTES.has(String(to.name))) return
+
   const isPublic = PUBLIC_ROUTES.has(String(to.name))
 
   if (!isPublic && !auth.isAuthenticated) {

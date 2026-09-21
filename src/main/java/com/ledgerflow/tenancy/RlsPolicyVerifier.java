@@ -40,7 +40,10 @@ public class RlsPolicyVerifier implements ApplicationRunner {
             "items",
             "document_number_counters",
             "invoices",
-            "invoice_lines");
+            "invoice_lines",
+            "attachments");
+    // invoice_public_links is deliberately not here -- see V18's own
+    // comment on that table for why it carries no tenant policy at all.
 
     private final JdbcTemplate jdbcTemplate;
 

@@ -7,19 +7,30 @@ import PageState from '@/components/feedback/PageState.vue'
 import AppShell from '@/layouts/AppShell.vue'
 import { listContacts } from '@/lib/api/contacts'
 import {
+  deleteAttachment,
   deleteInvoice,
+  downloadAttachment,
+  downloadInvoicePdf,
+  emailInvoice,
   getInvoice,
+  getOrCreatePublicLink,
   invoiceKeys,
+  listAttachments,
+  remindInvoice,
   sendInvoice,
   updateInvoice,
+  uploadAttachment,
   voidInvoice,
   type InvoiceRequestBody,
 } from '@/lib/api/invoices'
 import { listItems } from '@/lib/api/items'
 import { listTaxRates } from '@/lib/api/taxRates'
-import { formatDate, formatMoney } from '@/lib/format'
+import { formatBytes, formatDate, formatDateTime, formatMoney } from '@/lib/format'
 import { confirmDialog } from '@/lib/dialogs'
+import { copyToClipboard } from '@/lib/clipboard'
+import { downloadBlob, firstFileFrom } from '@/lib/download'
 import { ApiError } from '@/lib/http'
+import type { Attachment } from '@/lib/types'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 
@@ -109,6 +120,79 @@ const voidMutation = useMutation({
   },
 })
 
+// --- attachments ---
+const { data: attachments } = useQuery({
+  queryKey: computed(() => ['invoices', 'attachments', invoiceId.value]),
+  queryFn: () => listAttachments(invoiceId.value),
+})
+
+function invalidateAttachments() {
+  return queryClient.invalidateQueries({ queryKey: ['invoices', 'attachments', invoiceId.value] })
+}
+
+const uploadMutation = useMutation({
+  mutationFn: (file: Parameters<typeof uploadAttachment>[1]) => uploadAttachment(invoiceId.value, file),
+  onSuccess: () => invalidateAttachments(),
+  onError: (err) => toasts.error(err instanceof ApiError ? err.message : 'Unable to upload that file.'),
+})
+
+function onFileChosen(event: Parameters<typeof firstFileFrom>[0]) {
+  const file = firstFileFrom(event)
+  if (file) uploadMutation.mutate(file)
+}
+
+const deleteAttachmentMutation = useMutation({
+  mutationFn: (attachmentId: number) => deleteAttachment(invoiceId.value, attachmentId),
+  onSuccess: () => invalidateAttachments(),
+  onError: (err) => toasts.error(err instanceof ApiError ? err.message : 'Unable to delete that attachment.'),
+})
+
+async function onDownloadAttachment(attachment: Attachment) {
+  const blob = await downloadAttachment(invoiceId.value, attachment.id)
+  downloadBlob(blob, attachment.filename)
+}
+
+function onDeleteAttachment(attachment: Attachment) {
+  if (!confirmDialog(`Delete ${attachment.filename}?`)) return
+  deleteAttachmentMutation.mutate(attachment.id)
+}
+
+// --- PDF, email, public link ---
+const downloadingPdf = ref(false)
+async function onDownloadPdf() {
+  if (!invoice.value) return
+  downloadingPdf.value = true
+  try {
+    const blob = await downloadInvoicePdf(invoiceId.value)
+    downloadBlob(blob, `${invoice.value.invoiceNumber ?? 'invoice'}.pdf`)
+  } catch (err) {
+    toasts.error(err instanceof ApiError ? err.message : 'Unable to download the PDF.')
+  } finally {
+    downloadingPdf.value = false
+  }
+}
+
+const recipientEmail = ref('')
+const emailMutation = useMutation({
+  mutationFn: () => emailInvoice(invoiceId.value, recipientEmail.value.trim()),
+  onSuccess: () => toasts.success(`Queued for delivery to ${recipientEmail.value.trim()}`),
+  onError: (err) => toasts.error(err instanceof ApiError ? err.message : 'Unable to queue that email.'),
+})
+const remindMutation = useMutation({
+  mutationFn: () => remindInvoice(invoiceId.value, recipientEmail.value.trim()),
+  onSuccess: () => toasts.success(`Reminder queued for ${recipientEmail.value.trim()}`),
+  onError: (err) => toasts.error(err instanceof ApiError ? err.message : 'Unable to queue that reminder.'),
+})
+
+const publicLinkMutation = useMutation({
+  mutationFn: () => getOrCreatePublicLink(invoiceId.value),
+  onSuccess: async ({ url }) => {
+    const copied = await copyToClipboard(url)
+    toasts.success(copied ? 'Public link copied to clipboard' : url)
+  },
+  onError: (err) => toasts.error(err instanceof ApiError ? err.message : 'Unable to create a public link.'),
+})
+
 function statusPillClass(): string {
   if (!invoice.value) return 'pill pill-neutral'
   if (invoice.value.status === 'VOID') return 'pill pill-neutral'
@@ -144,6 +228,24 @@ function statusLabel(): string {
           @click="sendMutation.mutate()"
         >
           {{ sendMutation.isPending.value ? 'Sending…' : 'Send' }}
+        </button>
+        <button
+          v-if="invoice.status !== 'DRAFT'"
+          type="button"
+          class="btn"
+          :disabled="downloadingPdf"
+          @click="onDownloadPdf"
+        >
+          {{ downloadingPdf ? 'Preparing…' : 'Download PDF' }}
+        </button>
+        <button
+          v-if="invoice.status === 'SENT'"
+          type="button"
+          class="btn"
+          :disabled="publicLinkMutation.isPending.value"
+          @click="publicLinkMutation.mutate()"
+        >
+          Copy public link
         </button>
         <button
           v-if="invoice.status === 'SENT' && !voiding"
@@ -242,6 +344,60 @@ function statusLabel(): string {
             <div v-else-if="invoice.status === 'SENT'" class="meta-row">
               <span class="k">Journal</span><span class="v">posting…</span>
             </div>
+          </div>
+
+          <div v-if="auth.isAdmin && invoice.status === 'SENT'" class="card">
+            <h2>Email</h2>
+            <div class="field" style="margin-bottom: 10px">
+              <label>Recipient</label>
+              <input v-model="recipientEmail" class="input" type="email" placeholder="customer@example.com" />
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap">
+              <button
+                type="button"
+                class="btn btn-primary"
+                :disabled="!recipientEmail.trim() || emailMutation.isPending.value"
+                @click="emailMutation.mutate()"
+              >
+                {{ emailMutation.isPending.value ? 'Queuing…' : 'Email invoice' }}
+              </button>
+              <button
+                v-if="invoice.overdue"
+                type="button"
+                class="btn"
+                :disabled="!recipientEmail.trim() || remindMutation.isPending.value"
+                @click="remindMutation.mutate()"
+              >
+                {{ remindMutation.isPending.value ? 'Queuing…' : 'Send reminder' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Attachments</h2>
+            <div v-for="attachment in attachments ?? []" :key="attachment.id" class="attachment-row">
+              <div>
+                <a href="#" @click.prevent="onDownloadAttachment(attachment)">{{ attachment.filename }}</a>
+                <div class="attachment-meta">
+                  {{ formatBytes(attachment.sizeBytes) }} · {{ formatDateTime(attachment.createdAt) }}
+                </div>
+              </div>
+              <button
+                v-if="auth.isAdmin"
+                class="linkbtn"
+                type="button"
+                @click="onDeleteAttachment(attachment)"
+              >
+                Delete
+              </button>
+            </div>
+            <p v-if="attachments && attachments.length === 0" class="notes" style="margin-top: 0">
+              No attachments yet.
+            </p>
+            <label v-if="auth.isAdmin" class="upload-btn">
+              {{ uploadMutation.isPending.value ? 'Uploading…' : '+ Add attachment' }}
+              <input type="file" :disabled="uploadMutation.isPending.value" @change="onFileChosen" />
+            </label>
           </div>
         </div>
       </template>
@@ -343,5 +499,52 @@ function statusLabel(): string {
 }
 .meta-row .v {
   text-align: right;
+}
+.attachment-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12.5px;
+}
+.attachment-row:last-of-type {
+  border-bottom: none;
+}
+.attachment-meta {
+  color: var(--ink-faint);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.linkbtn {
+  background: none;
+  border: none;
+  color: var(--red);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 2px 0;
+  flex: none;
+}
+.linkbtn:hover {
+  text-decoration: underline;
+}
+.upload-btn {
+  display: inline-block;
+  margin-top: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11.5px;
+  padding: 7px 12px;
+  border-radius: 5px;
+  border: 1px dashed var(--line);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.upload-btn:hover {
+  border-color: var(--green-line);
+  color: var(--green);
+}
+.upload-btn input[type='file'] {
+  display: none;
 }
 </style>

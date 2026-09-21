@@ -241,3 +241,11 @@ export interface InvoiceDetail extends InvoiceListItem {
   notes: string | null
   lines: InvoiceLine[]
 }
+
+export interface Attachment {
+  id: number
+  filename: string
+  contentType: string
+  sizeBytes: number
+  createdAt: string
+}

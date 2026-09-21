@@ -94,6 +94,12 @@ a reconciliation process against an external source of truth, and a permanent au
   call itself, so a crash between them cannot leave the ledger half-updated — a background
   sweeper finds and finishes anything left in that state, safely, because the posting step is
   idempotent.
+- **Documents & delivery** — an invoice renders to a PDF from the same data its web view reads,
+  emailed with that PDF attached and a link to view it online, no LedgerFlow account required.
+  Emailing is a background job — MinIO holds the rendered document and any other attachment,
+  MailHog catches every email this stack sends so nothing real ever leaves the machine, and the
+  public link resolves through an unguessable token rather than a login: the token itself, 32
+  random bytes, is the only thing standing between an anonymous request and one invoice.
 
 ## Architecture
 ```mermaid
@@ -192,9 +198,10 @@ from `VIEWER` (read-only), and an `org` claim that scopes every query through Po
 row-level security.
 
 **Stack**: Java 17, Spring Boot 3.5, PostgreSQL + Spring Data JPA, Flyway (versioned schema
-migrations), Redis, RabbitMQ, Kafka (KRaft, no ZooKeeper), Micrometer Tracing, JWT (jjwt),
-Docker Compose, JUnit + Mockito for unit tests, Testcontainers for integration tests against
-real Postgres/Redis/RabbitMQ/Kafka.
+migrations), Redis, RabbitMQ, Kafka (KRaft, no ZooKeeper), MinIO (S3-compatible object storage),
+MailHog (a fake SMTP server for local development), openhtmltopdf, Micrometer Tracing, JWT
+(jjwt), Docker Compose, JUnit + Mockito for unit tests, Testcontainers for integration tests
+against real Postgres/Redis/RabbitMQ/Kafka/MinIO.
 
 ## Getting started
 
@@ -205,10 +212,12 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-This brings up Postgres, Redis, RabbitMQ, Kafka, the API, the worker and the web frontend,
-waits for each dependency to be healthy before starting the next, and applies the Flyway
-migrations (including two seeded demo users and three demo accounts) on first boot. The API is
-then available at `http://localhost:8080`, and the web UI at `http://localhost:8081`.
+This brings up Postgres, Redis, RabbitMQ, Kafka, MinIO, MailHog, the API, the worker and the
+web frontend, waits for each dependency to be healthy before starting the next, and applies the
+Flyway migrations (including two seeded demo users and three demo accounts) on first boot. The
+API is then available at `http://localhost:8080`, and the web UI at `http://localhost:8081`.
+Every email this stack ever sends lands at MailHog's own UI, `http://localhost:8025` — nothing
+it sends can reach a real inbox.
 
 First boot is slow -- the worker deliberately waits for the API to be healthy before starting,
 because the API owns the migrations and the worker validates its schema against them.
@@ -367,6 +376,33 @@ the journal it just became. A draft can be edited or deleted freely; once sent, 
 reverses the posting exactly like reversing any other transaction and leaves the invoice `VOID`
 rather than gone.
 
+Once it's sent, get its PDF, share a public link, or email it (open `http://localhost:8025`
+afterwards to see it land):
+
+```bash
+curl -s http://localhost:8080/invoices/$INVOICE_ID/pdf -H "Authorization: Bearer $TOKEN" -o invoice.pdf
+
+curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/public-link -H "Authorization: Bearer $TOKEN"
+# {"url":"http://localhost:5173/public/invoices/<token>"} -- open it in a private window; it needs no login
+
+curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/email \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"recipientEmail": "customer@example.test"}'
+```
+
+The email call returns `202 Accepted` immediately — a worker renders the PDF and talks to SMTP
+in the background, so a slow mail server never holds an HTTP thread. `POST
+/invoices/{id}/remind` sends the same email with a reminder subject, meant for a `SENT` invoice
+whose `overdue` is now `true`.
+
+Attach a file to an invoice (a signed PO, a receipt -- anything, not just what LedgerFlow
+generated itself):
+
+```bash
+curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/attachments \
+  -H "Authorization: Bearer $TOKEN" -F "file=@receipt.pdf"
+```
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -401,6 +437,16 @@ Isolation is enforced by Postgres, not by application code remembering to filter
 `RlsIntegrationTest` proves the behaviour against real Postgres: a cross-organization lookup
 returns empty rather than denied — RLS filters rows out rather than raising, so the caller
 cannot distinguish a row that never existed from one belonging to somebody else.
+
+A public invoice link is the one deliberate exception, and it earns a paragraph of its own so
+it reads as a decision rather than a gap. `GET /public/invoices/{token}` has no JWT and
+therefore no tenant — and a request with no tenant sees nothing, by the fail-closed rule just
+above. The token is resolved first, against `invoice_public_links`, a table that carries no
+row-level security at all (see its own migration comment): it maps an unguessable 32-byte token
+to nothing but the organization and invoice id it means. Once resolved, the rest of the request
+runs inside `TenantContext.runAs` for that organization, so the actual invoice read goes through
+the exact same policy-checked path any other read does. The token is the access control; RLS
+still decides what it is allowed to see once resolved.
 
 ### Listing, paging and filtering
 
@@ -442,8 +488,8 @@ Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVA
 `NOTHING_TO_CLOSE` — contacts/tax-rates/items' own — `INVALID_RATE`, `DUPLICATE_SKU`,
 `INVALID_PRICE`, `INVALID_TAX_RATE` (`INVALID_NAME` and `INVALID_TYPE` above are shared with
 these too) — and invoices' own — `INVOICE_NOT_EDITABLE`, `INVOICE_NOT_VOIDABLE`,
-`INVOICE_NOT_POSTED_YET`, `NOTHING_TO_INVOICE`, `NO_LINES`, `INVALID_LINE`, `INVALID_ITEM`,
-`INVALID_DUE_DATE`, `INVALID_DATE`, `CONTACT_NOT_A_CUSTOMER`.
+`INVOICE_NOT_POSTED_YET`, `INVOICE_NOT_SENT_YET`, `NOTHING_TO_INVOICE`, `NO_LINES`,
+`INVALID_LINE`, `INVALID_ITEM`, `INVALID_DUE_DATE`, `INVALID_DATE`, `CONTACT_NOT_A_CUSTOMER`.
 
 ### Watching the event stream
 
@@ -502,6 +548,11 @@ from the endpoints already described (accounts, transactions, contacts, tax rate
 invoices, reconciliation, audit log) and nothing is mocked. `ADMIN` sees posting/reconciliation/
 editing controls; `VIEWER` gets the same pages read-only.
 
+One page needs neither: `/public/invoices/:token`, reached from an invoice's own "Copy public
+link" action, renders outside the app shell entirely -- no sidebar, no login redirect, open to
+whoever holds the link, signed in or not. It is the one route the router's auth guard
+deliberately never touches.
+
 Deliberately left out, matching gaps in the API itself: CSV export and per-discrepancy
 resolution — the reconciliation model here compares whole account balances, not individual
 bank-line items.
@@ -544,9 +595,15 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   value in the organization's reporting currency, with the rate frozen at posting time, but
   the only rate available is 1. Posting in a currency other than the reporting one is refused
   outright rather than silently treated as par.
-- **Single-node Redis, RabbitMQ and Kafka** — no HA or clustering for any of them, and the
-  Kafka topic is created with replication factor 1. The outbox table is the durable record;
+- **Single-node Redis, RabbitMQ, Kafka and MinIO** — no HA or clustering for any of them, and
+  the Kafka topic is created with replication factor 1. The outbox table is the durable record;
   Kafka is treated as transport that can be replayed into.
+- **The invoice PDF and email are plain, on purpose** — one HTML template, no logo, no letterhead,
+  a plain-text email body. Nothing here needed more than that to prove the pipeline (render,
+  store, attach, deliver) actually works end to end; a real letterhead is a template change, not
+  an architecture change.
+- **Attachments have no size limit or content scanning** — anything a request can upload,
+  today's `AttachmentService` stores. Fine for a local demo, not for a public-facing deployment.
 - **Bills have no document yet** — the gapless document-numbering counter serves invoices
   today; bills are its second caller, arriving with milestone 11.
 - **An invoice can be overdue but never paid, yet** — `overdue` is derived from `status` and

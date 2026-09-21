@@ -68,12 +68,37 @@ function buildUrl(path: string, params?: RequestOptions['params']): string {
 }
 
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const res = await rawFetch(path, options)
+
+  // 204 (delete) and 202 (queued-for-async-processing, e.g. invoice email)
+  // both come back with no body -- res.json() would throw on the empty
+  // response.
+  if (res.status === 204 || res.status === 202) return undefined as T
+  return res.json() as Promise<T>
+}
+
+/**
+ * For a binary response (a rendered PDF) rather than JSON. Shares every
+ * other rule with apiFetch -- auth header, error taxonomy, the 401 hook --
+ * so a failed download surfaces the same ApiError a failed JSON call would.
+ */
+export async function apiFetchBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const res = await rawFetch(path, options)
+  return res.blob()
+}
+
+async function rawFetch(path: string, options: RequestOptions): Promise<Response> {
   const { params, ...init } = options
 
   const token = getToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  // FormData sets its own multipart boundary in the Content-Type it needs;
+  // overwriting it here would strip the boundary and the server could no
+  // longer parse the parts.
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
 
   const res = await fetch(buildUrl(path, params), { ...init, headers })
 
@@ -98,6 +123,5 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     throw new ApiError(res.status, code, message)
   }
 
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+  return res
 }

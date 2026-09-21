@@ -52,6 +52,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/signup").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        // The whole point of a tokenized invoice link is that
+                        // the customer holding it has no LedgerFlow account
+                        // to authenticate with. The token itself, 32 random
+                        // bytes, is what stands in for a role check here.
+                        .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
                         // "/transactions/**" rather than the bare path, so
                         // posting a reversal at /transactions/{id}/reverse
                         // needs ADMIN exactly as posting the original did.

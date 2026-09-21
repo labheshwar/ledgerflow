@@ -1,5 +1,5 @@
-import { apiFetch } from '@/lib/http'
-import type { InvoiceDetail, InvoiceListItem, InvoiceStatus, Paged } from '@/lib/types'
+import { apiFetch, apiFetchBlob } from '@/lib/http'
+import type { Attachment, InvoiceDetail, InvoiceListItem, InvoiceStatus, Paged } from '@/lib/types'
 
 export interface InvoiceListParams {
   q?: string
@@ -62,4 +62,43 @@ export function voidInvoice(id: string | number, reason?: string | null) {
     method: 'POST',
     body: JSON.stringify({ reason: reason || null }),
   })
+}
+
+export function downloadInvoicePdf(id: string | number) {
+  return apiFetchBlob(`/invoices/${id}/pdf`)
+}
+
+/** Idempotent: the same invoice always resolves to the same link once one exists. */
+export function getOrCreatePublicLink(id: string | number) {
+  return apiFetch<{ url: string }>(`/invoices/${id}/public-link`, { method: 'POST' })
+}
+
+/** Queued -- the worker renders the PDF and sends the mail, so this returns before either happens. */
+export function emailInvoice(id: string | number, recipientEmail: string) {
+  return apiFetch<void>(`/invoices/${id}/email`, { method: 'POST', body: JSON.stringify({ recipientEmail }) })
+}
+
+export function remindInvoice(id: string | number, recipientEmail: string) {
+  return apiFetch<void>(`/invoices/${id}/remind`, {
+    method: 'POST',
+    body: JSON.stringify({ recipientEmail }),
+  })
+}
+
+export function listAttachments(id: string | number) {
+  return apiFetch<Attachment[]>(`/invoices/${id}/attachments`)
+}
+
+export function uploadAttachment(id: string | number, file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiFetch<Attachment>(`/invoices/${id}/attachments`, { method: 'POST', body: formData })
+}
+
+export function downloadAttachment(id: string | number, attachmentId: number) {
+  return apiFetchBlob(`/invoices/${id}/attachments/${attachmentId}`)
+}
+
+export function deleteAttachment(id: string | number, attachmentId: number) {
+  return apiFetch<void>(`/invoices/${id}/attachments/${attachmentId}`, { method: 'DELETE' })
 }
