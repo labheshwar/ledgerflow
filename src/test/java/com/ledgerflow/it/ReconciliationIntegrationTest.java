@@ -38,6 +38,7 @@ import com.ledgerflow.service.UploadedStatement;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -252,12 +253,16 @@ class ReconciliationIntegrationTest extends AbstractIntegrationTest {
                 == StatementImportStatus.PREVIEWED);
         statementImportService.commit(uploaded.statementImport().getId());
 
+        // max(id), not findFirst: a test deliberately reusing the same
+        // description/amount/date for two separate lines (to prove the
+        // one-entry-one-line guard) would otherwise let this ambiguously
+        // resolve to whichever one happened to be already matched.
         return statementImportService
                 .committedLines(bankAccount.getId(), PageRequest.of(0, 20))
                 .getContent()
                 .stream()
                 .filter(l -> l.getDescription().equals(description) && l.getAmount().compareTo(amount) == 0)
-                .findFirst()
+                .max(Comparator.comparing(StatementLine::getId))
                 .orElseThrow();
     }
 
