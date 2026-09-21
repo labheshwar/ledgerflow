@@ -9,6 +9,8 @@ import com.ledgerflow.domain.Bill;
 import com.ledgerflow.domain.Contact;
 import com.ledgerflow.domain.ContactType;
 import com.ledgerflow.domain.DocumentType;
+import com.ledgerflow.domain.Entry;
+import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.domain.Invoice;
 import com.ledgerflow.domain.Payment;
 import com.ledgerflow.domain.PaymentDirection;
@@ -17,7 +19,6 @@ import com.ledgerflow.domain.SystemAccountRole;
 import com.ledgerflow.exception.PaymentException;
 import com.ledgerflow.repository.AccountRepository;
 import com.ledgerflow.repository.TransactionRepository;
-import com.ledgerflow.service.BalanceService;
 import com.ledgerflow.service.BillDraft;
 import com.ledgerflow.service.BillLineDraft;
 import com.ledgerflow.service.BillService;
@@ -29,6 +30,7 @@ import com.ledgerflow.service.InvoiceService;
 import com.ledgerflow.service.PaymentAllocationDraft;
 import com.ledgerflow.service.PaymentDraft;
 import com.ledgerflow.service.PaymentService;
+import com.ledgerflow.service.TransactionService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -45,6 +47,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * or one that overpays a single document is refused before anything is
  * written, and that the unallocated remainder actually lands in the
  * customer's or vendor's prepayment account.
+ *
+ * Assertions read the posted transaction's own entries directly rather than
+ * a shared account's before/after balance -- Cash, Accounts Receivable and
+ * the prepayment accounts are real, org-wide accounts every other test in
+ * this suite (and the worker's own background sweepers, which run for real
+ * against this same context throughout the whole run) can also post to, so
+ * a snapshot taken before and compared after is exactly the kind of shared
+ * mutable state this project's own tests are supposed to avoid depending
+ * on. What one payment actually posted is self-contained and cannot be
+ * touched by anything else.
  */
 class PaymentIntegrationTest extends AbstractIntegrationTest {
 
@@ -64,7 +76,7 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
     private AccountRepository accountRepository;
 
     @Autowired
-    private BalanceService balanceService;
+    private TransactionService transactionService;
 
     @Autowired
     private TransactionRepository transactionRepository;
@@ -75,8 +87,6 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
     void onePaymentSettlesThreeInvoicesAtOnce() {
         var ar = accountRepository.findBySystemRole(SystemAccountRole.ACCOUNTS_RECEIVABLE).orElseThrow();
         var cash = accountRepository.findBySystemRole(SystemAccountRole.CASH).orElseThrow();
-        BigDecimal arBefore = balanceService.getBalance(ar.getId()).balance();
-        BigDecimal cashBefore = balanceService.getBalance(cash.getId()).balance();
 
         Contact customer = customer();
         Invoice first = sentInvoice(customer, "100.00");
@@ -101,19 +111,20 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
         assertThat(paymentService.amountPaidFor(DocumentType.INVOICE, second.getId())).isEqualByComparingTo("50.00");
         assertThat(paymentService.amountPaidFor(DocumentType.INVOICE, third.getId())).isEqualByComparingTo("25.00");
 
-        assertThat(balanceService.getBalance(cash.getId()).balance()).isEqualByComparingTo(cashBefore.add(new BigDecimal("175.00")));
-        assertThat(balanceService.getBalance(ar.getId()).balance()).isEqualByComparingTo(arBefore.add(new BigDecimal("175.00")));
+        assertThat(debitedAmount(payment.getPostedTransactionId(), cash.getId())).isEqualByComparingTo("175.00");
+        assertThat(creditedAmount(payment.getPostedTransactionId(), ar.getId())).isEqualByComparingTo("175.00");
     }
 
     @Test
     void anUnallocatedRemainderPostsToThePrepaymentAccount() {
+        var cash = accountRepository.findBySystemRole(SystemAccountRole.CASH).orElseThrow();
+        var ar = accountRepository.findBySystemRole(SystemAccountRole.ACCOUNTS_RECEIVABLE).orElseThrow();
         var prepayments = accountRepository.findBySystemRole(SystemAccountRole.CUSTOMER_PREPAYMENTS).orElseThrow();
-        BigDecimal before = balanceService.getBalance(prepayments.getId()).balance();
 
         Contact customer = customer();
         Invoice invoice = sentInvoice(customer, "40.00");
 
-        paymentService.create(new PaymentDraft(
+        Payment payment = paymentService.create(new PaymentDraft(
                 customer.getId(),
                 PaymentDirection.RECEIVED,
                 LocalDate.of(2026, 8, 2),
@@ -121,17 +132,17 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
                 null,
                 List.of(new PaymentAllocationDraft(DocumentType.INVOICE, invoice.getId(), new BigDecimal("40.00")))));
 
+        Long transactionId = payment.getPostedTransactionId();
+        assertThat(debitedAmount(transactionId, cash.getId())).isEqualByComparingTo("100.00");
+        assertThat(creditedAmount(transactionId, ar.getId())).isEqualByComparingTo("40.00");
         // 60.00 of the 100.00 was never allocated to anything.
-        assertThat(balanceService.getBalance(prepayments.getId()).balance())
-                .isEqualByComparingTo(before.subtract(new BigDecimal("60.00")));
+        assertThat(creditedAmount(transactionId, prepayments.getId())).isEqualByComparingTo("60.00");
     }
 
     @Test
     void payingABillDebitsAccountsPayableAndCreditsCash() {
         var ap = accountRepository.findBySystemRole(SystemAccountRole.ACCOUNTS_PAYABLE).orElseThrow();
         var cash = accountRepository.findBySystemRole(SystemAccountRole.CASH).orElseThrow();
-        BigDecimal apBefore = balanceService.getBalance(ap.getId()).balance();
-        BigDecimal cashBefore = balanceService.getBalance(cash.getId()).balance();
 
         Contact vendor = vendor();
         Bill bill = openBill(vendor, "60.00");
@@ -145,8 +156,8 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
                 List.of(new PaymentAllocationDraft(DocumentType.BILL, bill.getId(), new BigDecimal("60.00")))));
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.POSTED);
-        assertThat(balanceService.getBalance(ap.getId()).balance()).isEqualByComparingTo(apBefore.subtract(new BigDecimal("60.00")));
-        assertThat(balanceService.getBalance(cash.getId()).balance()).isEqualByComparingTo(cashBefore.subtract(new BigDecimal("60.00")));
+        assertThat(debitedAmount(payment.getPostedTransactionId(), ap.getId())).isEqualByComparingTo("60.00");
+        assertThat(creditedAmount(payment.getPostedTransactionId(), cash.getId())).isEqualByComparingTo("60.00");
     }
 
     @Test
@@ -183,11 +194,16 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void aReceivedPaymentCannotBeAllocatedToABill() {
-        Contact vendor = vendor();
-        Bill bill = openBill(vendor, "20.00");
+        // BOTH, not a pure vendor: requireContactFor only rejects RECEIVED
+        // for a pure VENDOR, and this test is aimed at the document-type
+        // check further in, not that earlier one.
+        Contact both = contactService.create(new ContactDraft(
+                ContactType.BOTH, "Payment Test Both " + UUID.randomUUID(), null, null, null, null, null, null,
+                null, null, null, null));
+        Bill bill = openBill(both, "20.00");
 
         assertThatThrownBy(() -> paymentService.create(new PaymentDraft(
-                        vendor.getId(),
+                        both.getId(),
                         PaymentDirection.RECEIVED,
                         LocalDate.of(2026, 8, 6),
                         new BigDecimal("20.00"),
@@ -296,5 +312,23 @@ class PaymentIntegrationTest extends AbstractIntegrationTest {
                 .filter(a -> a.getType() == AccountType.EXPENSE && a.isPostable())
                 .findFirst()
                 .orElseThrow();
+    }
+
+    /** This transaction's own DEBIT to this account -- fails the test if there isn't exactly one. */
+    private BigDecimal debitedAmount(Long transactionId, Long accountId) {
+        return entryFor(transactionId, accountId, EntryType.DEBIT).getAmount();
+    }
+
+    /** This transaction's own CREDIT to this account -- fails the test if there isn't exactly one. */
+    private BigDecimal creditedAmount(Long transactionId, Long accountId) {
+        return entryFor(transactionId, accountId, EntryType.CREDIT).getAmount();
+    }
+
+    private Entry entryFor(Long transactionId, Long accountId, EntryType type) {
+        return transactionService.getEntries(transactionId).stream()
+                .filter(e -> e.getAccount().getId().equals(accountId) && e.getEntryType() == type)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "No %s entry to account %d on transaction %d".formatted(type, accountId, transactionId)));
     }
 }
