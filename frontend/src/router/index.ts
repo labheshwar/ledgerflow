@@ -52,6 +52,13 @@ const router = createRouter({
       name: 'public-invoice',
       component: () => import('../views/PublicInvoiceView.vue'),
     },
+    { path: '/bills', name: 'bills', component: () => import('../views/BillsView.vue') },
+    { path: '/bills/new', name: 'bill-new', component: () => import('../views/BillFormView.vue') },
+    {
+      path: '/bills/:id',
+      name: 'bill-detail',
+      component: () => import('../views/BillDetailView.vue'),
+    },
   ],
 })
 

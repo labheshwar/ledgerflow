@@ -1,6 +1,7 @@
 package com.ledgerflow.web;
 
 import com.ledgerflow.exception.AccountNotFoundException;
+import com.ledgerflow.exception.BillException;
 import com.ledgerflow.exception.ChartOfAccountsException;
 import com.ledgerflow.exception.InvoiceException;
 import com.ledgerflow.exception.MasterDataException;
@@ -55,6 +56,12 @@ public class GlobalExceptionHandler {
     /** An invoice, or a transition of one, that its own rules forbid -- same shape as above. */
     @ExceptionHandler(InvoiceException.class)
     public ResponseEntity<ErrorResponse> handleInvoice(InvoiceException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
+    /** A bill, or a transition of one, that its own rules forbid -- same shape as above. */
+    @ExceptionHandler(BillException.class)
+    public ResponseEntity<ErrorResponse> handleBill(BillException e) {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
     }
 

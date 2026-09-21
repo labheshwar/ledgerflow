@@ -100,6 +100,15 @@ a reconciliation process against an external source of truth, and a permanent au
   MailHog catches every email this stack sends so nothing real ever leaves the machine, and the
   public link resolves through an unguessable token rather than a login: the token itself, 32
   random bytes, is the only thing standing between an anonymous request and one invoice.
+- **Bills** — the mirror image of an invoice, entered against a vendor rather than a customer.
+  A draft is freely edited or deleted; posting one draws this application's own document
+  number and posts `DR each line's own expense or asset account / DR Tax Receivable / CR
+  Accounts Payable` as one balanced journal — a bill line names whatever account it belongs to
+  rather than assuming one revenue account the way invoicing does, since one bill can be rent,
+  software and travel all at once. A duplicate-vendor-bill guard, a partial unique index on
+  `(org_id, contact_id, vendor_reference)` that excludes voided rows, stops the same paper bill
+  being keyed in twice while still letting a voided-and-corrected entry reuse its reference.
+  Receipts attach the same way an invoice's documents do.
 
 ## Architecture
 ```mermaid
@@ -403,6 +412,33 @@ curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/attachments \
   -H "Authorization: Bearer $TOKEN" -F "file=@receipt.pdf"
 ```
 
+Enter a vendor bill and post it. `vendorReference` is the number printed on the vendor's own
+bill, not one this application draws itself, and each line names the account it belongs to
+rather than sharing one implied revenue account the way an invoice line does:
+
+```bash
+curl -s -X POST http://localhost:8080/contacts \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"type": "VENDOR", "name": "Acme Office Supply"}'
+
+BILL_ID=$(curl -s -X POST http://localhost:8080/bills \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "contactId": 2, "vendorReference": "INV-4471", "billDate": "2026-09-21", "dueDate": "2026-10-21",
+    "lines": [{"accountId": 9, "description": "Paper and toner", "quantity": 1, "unitPrice": 84.50}]
+  }' | sed -E 's/.*"id":([0-9]+).*/\1/')
+
+curl -s -X POST http://localhost:8080/bills/$BILL_ID/post -H "Authorization: Bearer $TOKEN"
+```
+
+The response carries the drawn `billNumber` (`BILL-00001`) and the `postedTransactionId` of the
+journal it just became. A draft can be edited or deleted freely; once posted, neither works —
+`BILL_NOT_EDITABLE` — and the only way to undo it is `POST /bills/{id}/void`, which reverses the
+posting exactly like voiding an invoice does. Entering the same `(contactId, vendorReference)`
+pair again, before that first bill is voided, is refused as `DUPLICATE_VENDOR_BILL` — the guard
+that stops one paper bill from being keyed in twice. Attachments work exactly like an invoice's,
+at `/bills/{id}/attachments`.
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -487,9 +523,13 @@ Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVA
 `PERIOD_CLOSED`, `OVERLAPPING_PERIOD`, `ALREADY_CLOSED`, `NOT_CLOSED`, `INVALID_PERIOD`,
 `NOTHING_TO_CLOSE` — contacts/tax-rates/items' own — `INVALID_RATE`, `DUPLICATE_SKU`,
 `INVALID_PRICE`, `INVALID_TAX_RATE` (`INVALID_NAME` and `INVALID_TYPE` above are shared with
-these too) — and invoices' own — `INVOICE_NOT_EDITABLE`, `INVOICE_NOT_VOIDABLE`,
+these too) — invoices' own — `INVOICE_NOT_EDITABLE`, `INVOICE_NOT_VOIDABLE`,
 `INVOICE_NOT_POSTED_YET`, `INVOICE_NOT_SENT_YET`, `NOTHING_TO_INVOICE`, `NO_LINES`,
-`INVALID_LINE`, `INVALID_ITEM`, `INVALID_DUE_DATE`, `INVALID_DATE`, `CONTACT_NOT_A_CUSTOMER`.
+`INVALID_LINE`, `INVALID_ITEM`, `INVALID_DUE_DATE`, `INVALID_DATE`, `CONTACT_NOT_A_CUSTOMER` —
+and bills' own — `BILL_NOT_EDITABLE`, `BILL_NOT_VOIDABLE`, `BILL_NOT_POSTED_YET`,
+`NOTHING_TO_BILL`, `DUPLICATE_VENDOR_BILL`, `CONTACT_NOT_A_VENDOR`, `INVALID_VENDOR_REFERENCE`
+(`NO_LINES`, `INVALID_LINE`, `INVALID_ITEM`, `INVALID_TAX_RATE`, `INVALID_DUE_DATE` and
+`INVALID_DATE` above are shared with bills too).
 
 ### Watching the event stream
 
@@ -604,12 +644,13 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   an architecture change.
 - **Attachments have no size limit or content scanning** — anything a request can upload,
   today's `AttachmentService` stores. Fine for a local demo, not for a public-facing deployment.
-- **Bills have no document yet** — the gapless document-numbering counter serves invoices
-  today; bills are its second caller, arriving with milestone 11.
-- **An invoice can be overdue but never paid, yet** — `overdue` is derived from `status` and
-  `dueDate` and is real today. `paid` is not derivable at all until something records a payment
-  against an invoice, which milestone 12 adds; until then every invoice's balance is either its
-  full amount or zero, on voiding.
+- **An invoice or bill can be overdue but never paid, yet** — `overdue` is derived from
+  `status` and `dueDate` and is real today. `paid` is not derivable at all until something
+  records a payment against one, which milestone 12 adds; until then every invoice's and bill's
+  balance is either its full amount or zero, on voiding.
+- **A bill line's account is not validated until posting** — the same rule a manual journal
+  entry already follows: an archived or heading account is rejected by `PostingService` when
+  the bill is posted, not earlier when the line is saved as a draft.
 
 These are the natural next steps, not oversights being hidden.
 

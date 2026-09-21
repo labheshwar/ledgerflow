@@ -249,3 +249,46 @@ export interface Attachment {
   sizeBytes: number
   createdAt: string
 }
+
+export type BillStatus = 'DRAFT' | 'OPEN' | 'VOID'
+
+export interface BillLine {
+  id: number
+  accountId: number
+  itemId: number | null
+  description: string
+  quantity: number
+  unitPrice: number
+  taxRateId: number | null
+  /** Derived from quantity, unitPrice and the line's own tax rate -- never stored. */
+  lineSubtotal: number
+  taxAmount: number
+  lineTotal: number
+}
+
+export interface BillListItem {
+  id: number
+  contactId: number
+  contactName: string
+  /** Null until posted. */
+  billNumber: string | null
+  /** The vendor's own bill number, entered by whoever keys this one in. */
+  vendorReference: string
+  status: BillStatus
+  billDate: string
+  dueDate: string
+  currency: string
+  subtotal: number
+  taxTotal: number
+  grandTotal: number
+  postedTransactionId: number | null
+  /** Derived from status and dueDate on every read, never stored. */
+  overdue: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BillDetail extends BillListItem {
+  notes: string | null
+  lines: BillLine[]
+}
