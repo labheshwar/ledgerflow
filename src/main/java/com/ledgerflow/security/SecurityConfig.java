@@ -95,6 +95,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/payments/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/bank-accounts/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/bank-accounts/**").hasRole("ADMIN")
+                        // Recording an exchange rate changes what every
+                        // foreign-currency posting from that point on means.
+                        .requestMatchers(HttpMethod.POST, "/fx-rates/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

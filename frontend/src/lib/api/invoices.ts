@@ -23,6 +23,8 @@ export interface InvoiceRequestBody {
   dueDate: string
   notes?: string | null
   lines: InvoiceLineRequestBody[]
+  /** Omit or leave blank for the organization's own base currency. */
+  currency?: string | null
 }
 
 export const invoiceKeys = {

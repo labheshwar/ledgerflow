@@ -3,11 +3,13 @@ package com.ledgerflow.service;
 import com.ledgerflow.domain.Account;
 import com.ledgerflow.domain.Entry;
 import com.ledgerflow.domain.EntryType;
+import com.ledgerflow.domain.SystemAccountRole;
 import com.ledgerflow.domain.Transaction;
 import com.ledgerflow.events.LedgerTopics;
 import com.ledgerflow.events.TransactionPostedEvent;
 import com.ledgerflow.exception.AccountNotFoundException;
 import com.ledgerflow.exception.ChartOfAccountsException;
+import com.ledgerflow.exception.UnbalancedTransactionException;
 import com.ledgerflow.money.CurrencyMismatchException;
 import com.ledgerflow.money.Money;
 import com.ledgerflow.outbox.OutboxRecorder;
@@ -16,9 +18,11 @@ import com.ledgerflow.repository.EntryRepository;
 import com.ledgerflow.repository.TransactionRepository;
 import com.ledgerflow.tenancy.TenantContext;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,10 +36,28 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 class PostingExecutor {
 
+    /**
+     * The accounts a foreign-currency invoice and its settlement touch.
+     * Each stays nominally denominated in whatever currency it was seeded
+     * or created in -- {@code Account.currency} is a default, not a
+     * constraint, for exactly these roles -- because what each one holds is
+     * a claim, a liability or a running total that can legitimately span
+     * currencies, unlike a real bank account, which holds one currency and
+     * one currency only. Bills and vendor-side accounts are deliberately
+     * not here yet -- milestone 15 only reaches foreign-currency invoices.
+     */
+    private static final Set<SystemAccountRole> CURRENCY_FLEXIBLE_ROLES = Set.of(
+            SystemAccountRole.CASH,
+            SystemAccountRole.ACCOUNTS_RECEIVABLE,
+            SystemAccountRole.SALES_REVENUE,
+            SystemAccountRole.TAX_PAYABLE,
+            SystemAccountRole.CUSTOMER_PREPAYMENTS);
+
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final EntryRepository entryRepository;
     private final OrganizationService organizationService;
+    private final FxRateService fxRateService;
     private final PeriodService periodService;
     private final AuditService auditService;
     private final OutboxRecorder outboxRecorder;
@@ -45,6 +67,7 @@ class PostingExecutor {
             TransactionRepository transactionRepository,
             EntryRepository entryRepository,
             OrganizationService organizationService,
+            FxRateService fxRateService,
             PeriodService periodService,
             AuditService auditService,
             OutboxRecorder outboxRecorder) {
@@ -52,6 +75,7 @@ class PostingExecutor {
         this.transactionRepository = transactionRepository;
         this.entryRepository = entryRepository;
         this.organizationService = organizationService;
+        this.fxRateService = fxRateService;
         this.periodService = periodService;
         this.auditService = auditService;
         this.outboxRecorder = outboxRecorder;
@@ -76,14 +100,23 @@ class PostingExecutor {
         transaction = transactionRepository.save(transaction);
 
         List<TransactionPostedEvent.Line> eventLines = new ArrayList<>(command.entries().size());
+        Money debitsBase = Money.zero(baseCurrency);
+        Money creditsBase = Money.zero(baseCurrency);
 
         for (EntryLine line : command.entries()) {
             Account account = accountsById.get(line.accountId());
             Money amount = line.amount();
             requireAccountCurrency(account, amount);
 
-            BigDecimal fxRate = rateToBase(amount.currency(), baseCurrency);
+            BigDecimal fxRate = line.rateOverride() != null
+                    ? line.rateOverride()
+                    : rateToBase(amount.currency(), baseCurrency, command.txnDate());
             Money baseAmount = amount.convertedTo(baseCurrency, fxRate);
+            if (line.entryType() == EntryType.DEBIT) {
+                debitsBase = debitsBase.plus(baseAmount);
+            } else {
+                creditsBase = creditsBase.plus(baseAmount);
+            }
 
             // Nothing is written to the account row. That is the change:
             // posting used to read-modify-write a balance column guarded by
@@ -100,6 +133,10 @@ class PostingExecutor {
             entry.setCurrency(amount.currency());
             entry.setBaseAmount(baseAmount.amount());
             entry.setFxRate(fxRate);
+            // Inferred from the role rather than carried on EntryLine: the
+            // FX_GAIN_LOSS account exists for exactly this leg and nothing
+            // else ever posts to it, so the role itself is already the fact.
+            entry.setFxAdjustment(account.getSystemRole() == SystemAccountRole.FX_GAIN_LOSS);
             entryRepository.save(entry);
 
             // Records the entry, not a before/after balance. There is no
@@ -123,6 +160,20 @@ class PostingExecutor {
                     amount.amount(),
                     amount.currency(),
                     baseAmount.amount()));
+        }
+
+        // Only for a mixed-currency command -- PostingCommand's own
+        // constructor already proved a single-currency one balances, and
+        // re-deriving that from independently-rounded per-line base
+        // amounts here risks rejecting a legitimate journal over sub-cent
+        // rounding drift that was never actually a problem. A mixed
+        // command skipped that check entirely (see PostingCommand's own
+        // Javadoc), so this is the only place it is ever verified.
+        if (debitsBase.compareTo(creditsBase) != 0
+                && command.entries().stream().map(l -> l.amount().currency()).distinct().count() > 1) {
+            throw new UnbalancedTransactionException(
+                    "Debits (%s) must equal credits (%s) once converted to the reporting currency"
+                            .formatted(debitsBase, creditsBase));
         }
 
         auditService.record(
@@ -156,28 +207,35 @@ class PostingExecutor {
     }
 
     /**
-     * An entry has to be denominated in the currency of the account it hits.
+     * An entry has to be denominated in the currency of the account it hits
+     * -- unless the account's role is one of {@link #CURRENCY_FLEXIBLE_ROLES}.
      * A euro line on a dollar bank account is not a conversion, it is a
-     * mistake -- the account represents a real balance held in one currency.
+     * mistake, because that account represents a real balance held in one
+     * currency; a euro line on a receivables or revenue account is a
+     * perfectly ordinary foreign-currency invoice, because what that
+     * account holds is a claim or a running total, not a store of value in
+     * one specific currency.
      */
     private void requireAccountCurrency(Account account, Money amount) {
-        if (!account.getCurrency().equalsIgnoreCase(amount.currency())) {
-            throw new CurrencyMismatchException(account.getCurrency(), amount.currency());
+        if (account.getCurrency().equalsIgnoreCase(amount.currency())) {
+            return;
         }
+        if (CURRENCY_FLEXIBLE_ROLES.contains(account.getSystemRole())) {
+            return;
+        }
+        throw new CurrencyMismatchException(account.getCurrency(), amount.currency());
     }
 
     /**
-     * Until the rates table lands (milestone 15) the only rate available is
-     * the identity one. Refusing loudly is better than defaulting to 1 and
-     * quietly reporting euros as though they were dollars.
+     * The identity rate needs no lookup at all; anything else comes from
+     * {@link FxRateService}, which throws its own clear error if nothing
+     * has ever been recorded for that currency on or before this date.
      */
-    private BigDecimal rateToBase(String currency, String baseCurrency) {
+    private BigDecimal rateToBase(String currency, String baseCurrency, LocalDate asOfDate) {
         if (currency.equalsIgnoreCase(baseCurrency)) {
             return BigDecimal.ONE;
         }
-        throw new UnsupportedOperationException(
-                "Posting %s into an organization reporting in %s needs an exchange rate, which is not implemented yet"
-                        .formatted(currency, baseCurrency));
+        return fxRateService.rateAsOf(currency, asOfDate);
     }
 
     /**

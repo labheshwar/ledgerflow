@@ -90,6 +90,8 @@ export interface TransactionEntry {
   amount: number
   currency: string
   baseAmount: number
+  /** Marks the realized gain/loss leg a foreign-currency settlement posts when its rate differs from the invoice's own. */
+  fxAdjustment: boolean
 }
 
 export interface TransactionDetail extends TransactionListItem {
@@ -262,6 +264,7 @@ export interface OpenDocument {
   number: string | null
   dueDate: string
   balance: number
+  currency: string
 }
 
 export type BillStatus = 'DRAFT' | 'OPEN' | 'VOID'
@@ -343,6 +346,15 @@ export interface StatementImport {
   errorMessage: string | null
   createdAt: string
   completedAt: string | null
+}
+
+/** How many units of the organization's own base currency equal one unit of this currency, as of a given date. */
+export interface FxRate {
+  id: number
+  currency: string
+  rate: number
+  asOfDate: string
+  createdAt: string
 }
 
 export interface StatementLine {

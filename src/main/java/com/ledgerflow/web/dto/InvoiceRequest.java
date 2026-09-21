@@ -13,9 +13,11 @@ public record InvoiceRequest(
         @NotNull LocalDate issueDate,
         @NotNull LocalDate dueDate,
         @Size(max = 1000) String notes,
-        @NotEmpty @Valid List<InvoiceLineRequest> lines) {
+        @NotEmpty @Valid List<InvoiceLineRequest> lines,
+        String currency) {
 
     public InvoiceDraft toDraft() {
-        return new InvoiceDraft(contactId, issueDate, dueDate, notes, lines.stream().map(InvoiceLineRequest::toDraft).toList());
+        return new InvoiceDraft(
+                contactId, issueDate, dueDate, notes, lines.stream().map(InvoiceLineRequest::toDraft).toList(), currency);
     }
 }

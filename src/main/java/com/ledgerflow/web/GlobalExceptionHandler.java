@@ -3,6 +3,7 @@ package com.ledgerflow.web;
 import com.ledgerflow.exception.AccountNotFoundException;
 import com.ledgerflow.exception.BillException;
 import com.ledgerflow.exception.ChartOfAccountsException;
+import com.ledgerflow.exception.FxRateException;
 import com.ledgerflow.exception.InvoiceException;
 import com.ledgerflow.exception.PaymentException;
 import com.ledgerflow.exception.StatementImportException;
@@ -86,6 +87,12 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
     }
 
+    /** An exchange rate that its own rules forbid recording, or a posting that needed one nobody ever recorded. */
+    @ExceptionHandler(FxRateException.class)
+    public ResponseEntity<ErrorResponse> handleFxRate(FxRateException e) {
+        return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
     /**
      * An entry denominated in a currency the account is not held in. A
      * client mistake, not a server one -- the request describes something
@@ -94,16 +101,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(CurrencyMismatchException.class)
     public ResponseEntity<ErrorResponse> handleCurrencyMismatch(CurrencyMismatchException e) {
         return error(HttpStatus.BAD_REQUEST, "CURRENCY_MISMATCH", e.getMessage());
-    }
-
-    /**
-     * A well-formed request the ledger cannot honour yet -- posting in a
-     * currency other than the reporting one, which needs exchange rates.
-     * 501 rather than 400, because the caller did nothing wrong.
-     */
-    @ExceptionHandler(UnsupportedOperationException.class)
-    public ResponseEntity<ErrorResponse> handleUnsupported(UnsupportedOperationException e) {
-        return error(HttpStatus.NOT_IMPLEMENTED, "NOT_IMPLEMENTED", e.getMessage());
     }
 
     @ExceptionHandler(AccountNotFoundException.class)

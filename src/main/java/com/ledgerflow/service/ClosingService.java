@@ -62,10 +62,6 @@ public class ClosingService {
      *         the organization has no account marked RETAINED_EARNINGS
      * @throws ChartOfAccountsException with code NOTHING_TO_CLOSE if every
      *         revenue and expense account is already at zero as of that date
-     * @throws UnsupportedOperationException if a revenue or expense account
-     *         holding a balance is denominated in a currency other than the
-     *         organization's reporting currency -- closing it needs an
-     *         exchange rate, which does not exist yet (milestone 15)
      */
     public Transaction closeFiscalYear(LocalDate asOfDate) {
         Long orgId = TenantContext.require();
@@ -98,13 +94,13 @@ public class ClosingService {
         BigDecimal netOfEverythingClosed = BigDecimal.ZERO;
 
         for (AccountWithBalance account : toClose) {
-            if (!account.currency().equalsIgnoreCase(baseCurrency)) {
-                throw new UnsupportedOperationException(
-                        "Closing %s (%s), held in %s, needs an exchange rate to %s, which is not implemented yet"
-                                .formatted(account.name(), account.code(), account.currency(), baseCurrency));
-            }
-
-            BigDecimal balance = account.balance();
+            // Base, not account-currency: milestone 15 lets a handful of
+            // system-role accounts (revenue among them) hold entries in
+            // more than one currency at once, and adding raw account-
+            // currency amounts across those would add euros to dollars.
+            // base_amount is comparable and addable regardless of what
+            // currency each entry that fed it was actually posted in.
+            BigDecimal balance = account.baseBalance();
             Money zeroingAmount = Money.of(balance.abs(), baseCurrency);
             if (balance.signum() > 0) {
                 // A positive balance here is a contra account or a refund

@@ -5,6 +5,7 @@ import com.ledgerflow.domain.BillStatus;
 import com.ledgerflow.domain.Contact;
 import com.ledgerflow.domain.ContactType;
 import com.ledgerflow.domain.DocumentType;
+import com.ledgerflow.domain.Entry;
 import com.ledgerflow.domain.Invoice;
 import com.ledgerflow.domain.InvoiceStatus;
 import com.ledgerflow.domain.Payment;
@@ -17,13 +18,16 @@ import com.ledgerflow.exception.PaymentException;
 import com.ledgerflow.money.Money;
 import com.ledgerflow.repository.BankAccountRepository;
 import com.ledgerflow.repository.ContactRepository;
+import com.ledgerflow.repository.EntryRepository;
 import com.ledgerflow.repository.PaymentAllocationRepository;
 import com.ledgerflow.repository.PaymentRepository;
 import com.ledgerflow.tenancy.TenantContext;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -53,10 +57,12 @@ public class PaymentService {
     private final PaymentAllocationRepository paymentAllocationRepository;
     private final ContactRepository contactRepository;
     private final BankAccountRepository bankAccountRepository;
+    private final EntryRepository entryRepository;
     private final InvoiceService invoiceService;
     private final BillService billService;
     private final ChartOfAccountsService chartOfAccounts;
     private final OrganizationService organizationService;
+    private final FxRateService fxRateService;
     private final PostingService postingService;
     private final ReversalService reversalService;
     private final TransactionTemplate transactionTemplate;
@@ -66,10 +72,12 @@ public class PaymentService {
             PaymentAllocationRepository paymentAllocationRepository,
             ContactRepository contactRepository,
             BankAccountRepository bankAccountRepository,
+            EntryRepository entryRepository,
             InvoiceService invoiceService,
             BillService billService,
             ChartOfAccountsService chartOfAccounts,
             OrganizationService organizationService,
+            FxRateService fxRateService,
             PostingService postingService,
             ReversalService reversalService,
             PlatformTransactionManager transactionManager) {
@@ -77,10 +85,12 @@ public class PaymentService {
         this.paymentAllocationRepository = paymentAllocationRepository;
         this.contactRepository = contactRepository;
         this.bankAccountRepository = bankAccountRepository;
+        this.entryRepository = entryRepository;
         this.invoiceService = invoiceService;
         this.billService = billService;
         this.chartOfAccounts = chartOfAccounts;
         this.organizationService = organizationService;
+        this.fxRateService = fxRateService;
         this.postingService = postingService;
         this.reversalService = reversalService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -120,10 +130,12 @@ public class PaymentService {
                             invoiceService
                                     .totalsFor(invoiceService.getLines(invoice.getId()))
                                     .grandTotal()
-                                    .subtract(amountPaidFor(DocumentType.INVOICE, invoice.getId()))))
+                                    .subtract(amountPaidFor(DocumentType.INVOICE, invoice.getId())),
+                            invoice.getCurrency()))
                     .filter(document -> document.balance().signum() > 0)
                     .toList();
         }
+        String baseCurrency = organizationService.baseCurrency();
         return billService.findOpenForContact(contactId).stream()
                 .map(bill -> new OpenDocument(
                         DocumentType.BILL,
@@ -133,7 +145,8 @@ public class PaymentService {
                         billService
                                 .totalsFor(billService.getLines(bill.getId()))
                                 .grandTotal()
-                                .subtract(amountPaidFor(DocumentType.BILL, bill.getId()))))
+                                .subtract(amountPaidFor(DocumentType.BILL, bill.getId())),
+                        baseCurrency))
                 .filter(document -> document.balance().signum() > 0)
                 .toList();
     }
@@ -146,6 +159,12 @@ public class PaymentService {
         List<PaymentAllocationDraft> allocations = draft.allocations() == null ? List.of() : draft.allocations();
         if (draft.bankAccountId() != null && !bankAccountRepository.existsById(draft.bankAccountId())) {
             throw new PaymentException("BANK_ACCOUNT_NOT_FOUND", "No bank account with id " + draft.bankAccountId());
+        }
+        String currency = resolvePaymentCurrency(allocations);
+        if (draft.bankAccountId() != null && !currency.equals(organizationService.baseCurrency())) {
+            throw new PaymentException(
+                    "BANK_ACCOUNT_CURRENCY_UNSUPPORTED",
+                    "Settling a foreign-currency document to a specific bank account is not supported yet");
         }
 
         BigDecimal allocatedTotal = BigDecimal.ZERO;
@@ -173,7 +192,7 @@ public class PaymentService {
             payment.setDirection(draft.direction());
             payment.setPaymentDate(paymentDate);
             payment.setAmount(amount);
-            payment.setCurrency(organizationService.baseCurrency());
+            payment.setCurrency(currency);
             payment.setNotes(draft.notes() == null || draft.notes().isBlank() ? null : draft.notes().trim());
             payment.setBankAccountId(draft.bankAccountId());
             Payment persisted = paymentRepository.save(payment);
@@ -202,12 +221,9 @@ public class PaymentService {
     }
 
     private Payment finishPost(Payment payment, String contactName) {
-        BigDecimal allocatedTotal = paymentAllocationRepository.findByPaymentId(payment.getId()).stream()
-                .map(PaymentAllocation::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<PaymentAllocation> allocations = paymentAllocationRepository.findByPaymentId(payment.getId());
         String idempotencyKey = "PMT:%d:%d:POST".formatted(payment.getOrgId(), payment.getId());
-        Transaction posted =
-                postingService.post(buildPostingCommand(payment, allocatedTotal, contactName, idempotencyKey));
+        Transaction posted = postingService.post(buildPostingCommand(payment, allocations, contactName, idempotencyKey));
 
         return transactionTemplate.execute(status -> {
             Payment fresh = require(payment.getId());
@@ -216,36 +232,76 @@ public class PaymentService {
         });
     }
 
-    private PostingCommand buildPostingCommand(Payment payment, BigDecimal allocatedTotal, String contactName, String idempotencyKey) {
+    private PostingCommand buildPostingCommand(
+            Payment payment, List<PaymentAllocation> allocations, String contactName, String idempotencyKey) {
         String currency = payment.getCurrency();
+        BigDecimal allocatedTotal =
+                allocations.stream().map(PaymentAllocation::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal excess = payment.getAmount().subtract(allocatedTotal);
         Long cashAccountId = cashAccountIdFor(payment);
-
         boolean received = payment.getDirection() == PaymentDirection.RECEIVED;
+
         JournalBuilder journal = JournalBuilder.forDate(payment.getPaymentDate())
                 .withIdempotencyKey(idempotencyKey)
                 .describedAs((received ? "Payment received from " : "Payment sent to ") + contactName);
 
-        if (received) {
-            journal.debit(cashAccountId, Money.of(payment.getAmount(), currency));
-            if (allocatedTotal.signum() > 0) {
-                var ar = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_RECEIVABLE);
-                journal.credit(ar.getId(), Money.of(allocatedTotal, currency));
+        if (currency.equals(organizationService.baseCurrency())) {
+            if (received) {
+                journal.debit(cashAccountId, Money.of(payment.getAmount(), currency));
+                if (allocatedTotal.signum() > 0) {
+                    var ar = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_RECEIVABLE);
+                    journal.credit(ar.getId(), Money.of(allocatedTotal, currency));
+                }
+                if (excess.signum() > 0) {
+                    var prepayments = chartOfAccounts.requireByRole(SystemAccountRole.CUSTOMER_PREPAYMENTS);
+                    journal.credit(prepayments.getId(), Money.of(excess, currency));
+                }
+            } else {
+                if (allocatedTotal.signum() > 0) {
+                    var ap = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_PAYABLE);
+                    journal.debit(ap.getId(), Money.of(allocatedTotal, currency));
+                }
+                if (excess.signum() > 0) {
+                    var prepayments = chartOfAccounts.requireByRole(SystemAccountRole.VENDOR_PREPAYMENTS);
+                    journal.debit(prepayments.getId(), Money.of(excess, currency));
+                }
+                journal.credit(cashAccountId, Money.of(payment.getAmount(), currency));
             }
-            if (excess.signum() > 0) {
-                var prepayments = chartOfAccounts.requireByRole(SystemAccountRole.CUSTOMER_PREPAYMENTS);
-                journal.credit(prepayments.getId(), Money.of(excess, currency));
+            return journal.build();
+        }
+
+        // A foreign-currency payment: resolvePaymentCurrency only ever
+        // produces one for a RECEIVED payment settling invoices, since a
+        // bill allocation always resolves to base currency -- so this leg
+        // shape only has to handle that one direction.
+        BigDecimal currentRate = fxRateService.rateAsOf(currency, payment.getPaymentDate());
+        journal.debit(cashAccountId, Money.of(payment.getAmount(), currency));
+
+        var ar = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_RECEIVABLE);
+        Money netFxAdjustment = Money.zero(organizationService.baseCurrency());
+        for (PaymentAllocation allocation : allocations) {
+            Invoice invoice = invoiceService.get(allocation.getDocumentId());
+            BigDecimal invoiceRate = invoiceIssueRate(invoice);
+            Money allocatedInForeign = Money.of(allocation.getAmount(), currency);
+            journal.creditAtRate(ar.getId(), allocatedInForeign, invoiceRate);
+            netFxAdjustment = netFxAdjustment
+                    .plus(allocatedInForeign.convertedTo(organizationService.baseCurrency(), currentRate))
+                    .minus(allocatedInForeign.convertedTo(organizationService.baseCurrency(), invoiceRate));
+        }
+        if (excess.signum() > 0) {
+            var prepayments = chartOfAccounts.requireByRole(SystemAccountRole.CUSTOMER_PREPAYMENTS);
+            journal.credit(prepayments.getId(), Money.of(excess, currency));
+        }
+        if (!netFxAdjustment.isZero()) {
+            var fxGainLoss = chartOfAccounts.requireByRole(SystemAccountRole.FX_GAIN_LOSS);
+            if (netFxAdjustment.isPositive()) {
+                // The rate moved in the business's favor since the invoice
+                // was raised: the cash received is worth more, in base
+                // currency, than the receivable it settles.
+                journal.credit(fxGainLoss.getId(), netFxAdjustment);
+            } else {
+                journal.debit(fxGainLoss.getId(), netFxAdjustment.negated());
             }
-        } else {
-            if (allocatedTotal.signum() > 0) {
-                var ap = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_PAYABLE);
-                journal.debit(ap.getId(), Money.of(allocatedTotal, currency));
-            }
-            if (excess.signum() > 0) {
-                var prepayments = chartOfAccounts.requireByRole(SystemAccountRole.VENDOR_PREPAYMENTS);
-                journal.debit(prepayments.getId(), Money.of(excess, currency));
-            }
-            journal.credit(cashAccountId, Money.of(payment.getAmount(), currency));
         }
         return journal.build();
     }
@@ -280,6 +336,44 @@ public class PaymentService {
 
         payment.setStatus(PaymentStatus.VOID);
         return paymentRepository.save(payment);
+    }
+
+    /**
+     * A payment settling only base-currency documents (or nothing at all)
+     * stays in the organization's own base currency, exactly as every
+     * payment did before milestone 15. One settling foreign-currency
+     * invoices is recorded in that same currency instead -- a customer
+     * paying a EUR invoice pays in EUR -- which is also why every invoice
+     * allocated against one payment has to share a single currency: there
+     * is one cash leg, and it can only be denominated in one currency at
+     * a time.
+     */
+    private String resolvePaymentCurrency(List<PaymentAllocationDraft> allocations) {
+        String baseCurrency = organizationService.baseCurrency();
+        Set<String> currencies = new HashSet<>();
+        for (PaymentAllocationDraft allocation : allocations) {
+            if (allocation.documentType() == DocumentType.INVOICE) {
+                currencies.add(invoiceService.get(allocation.documentId()).getCurrency());
+            } else {
+                currencies.add(baseCurrency);
+            }
+        }
+        if (currencies.size() > 1) {
+            throw new PaymentException(
+                    "MIXED_ALLOCATION_CURRENCIES", "A payment cannot settle documents in different currencies at once");
+        }
+        return currencies.isEmpty() ? baseCurrency : currencies.iterator().next();
+    }
+
+    /** The rate this invoice's own receivable was booked at, frozen on its posted transaction's own AR entry. */
+    private BigDecimal invoiceIssueRate(Invoice invoice) {
+        Long arAccountId = chartOfAccounts.requireByRole(SystemAccountRole.ACCOUNTS_RECEIVABLE).getId();
+        return entryRepository.findByTransactionId(invoice.getPostedTransactionId()).stream()
+                .filter(entry -> entry.getAccount().getId().equals(arAccountId))
+                .findFirst()
+                .map(Entry::getFxRate)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Invoice %d has no posted receivable entry to read its own rate from".formatted(invoice.getId())));
     }
 
     private BigDecimal remainingBalance(DocumentType documentType, Long documentId, Long expectedContactId) {

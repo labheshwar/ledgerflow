@@ -15,7 +15,9 @@ import org.junit.jupiter.api.Test;
  * checked once a command had already been built, passed around and handed to
  * a service. It now lives in PostingCommand's constructor, so these tests are
  * really asking one question: is an unbalanced journal entry constructible at
- * all?
+ * all? For a single-currency journal, still exactly that -- for the one
+ * mixed-currency case milestone 15 introduces, see PostingCommand's own
+ * Javadoc on where that check moved instead, and why.
  */
 class JournalBuilderTest {
 
@@ -96,16 +98,21 @@ class JournalBuilderTest {
     }
 
     @Test
-    void refusesToMixCurrenciesInOneEntry() {
-        // 100 USD of debits against 100 EUR of credits is not balanced, it is
-        // two unrelated numbers that happen to look alike.
-        assertThatThrownBy(() -> JournalBuilder.forDate(TODAY)
-                        .withIdempotencyKey("bad-5")
-                        .debit(1L, Money.of("100.00", "USD"))
-                        .credit(2L, Money.of("100.00", "EUR"))
-                        .build())
-                .isInstanceOf(UnbalancedTransactionException.class)
-                .hasMessageContaining("cannot mix currencies");
+    void aMixedCurrencyEntryIsNoLongerRejectedAtConstructionTime() {
+        // Milestone 15: a genuine foreign-currency settlement mixes the
+        // document's own currency with a base-currency-only FX adjustment
+        // leg, and there is no way to know here whether 100 USD of debits
+        // against 100 EUR of credits balances -- that needs an exchange
+        // rate, which this record has no access to. See PostingCommand's
+        // own Javadoc: building one no longer throws, and PostingExecutor
+        // is where a mixed-currency command is actually checked instead.
+        PostingCommand command = JournalBuilder.forDate(TODAY)
+                .withIdempotencyKey("mixed-1")
+                .debit(1L, Money.of("100.00", "USD"))
+                .credit(2L, Money.of("100.00", "EUR"))
+                .build();
+
+        assertThat(command.entries()).hasSize(2);
     }
 
     @Test

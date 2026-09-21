@@ -20,7 +20,9 @@ import com.ledgerflow.tenancy.TenantContext;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Currency;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -119,7 +121,6 @@ public class InvoiceService {
 
         Invoice invoice = new Invoice();
         invoice.setOrgId(orgId);
-        invoice.setCurrency(organizationService.baseCurrency());
         apply(invoice, draft);
 
         Invoice saved = invoiceRepository.save(invoice);
@@ -229,6 +230,25 @@ public class InvoiceService {
             throw new InvoiceException("INVALID_DUE_DATE", "The due date cannot be before the issue date");
         }
         invoice.setNotes(draft.notes() == null || draft.notes().isBlank() ? null : draft.notes().trim());
+        invoice.setCurrency(resolveCurrency(draft.currency()));
+    }
+
+    /**
+     * Defaults to the organization's own reporting currency, which is what
+     * nearly every invoice is held in -- see {@code ChartOfAccountsService}'s
+     * own currency resolution for the same reasoning.
+     */
+    private String resolveCurrency(String currency) {
+        if (currency == null || currency.isBlank()) {
+            return organizationService.baseCurrency();
+        }
+        String normalized = currency.trim().toUpperCase(Locale.ROOT);
+        try {
+            Currency.getInstance(normalized);
+        } catch (IllegalArgumentException e) {
+            throw new InvoiceException("INVALID_CURRENCY", "Not a known ISO 4217 currency code: " + normalized);
+        }
+        return normalized;
     }
 
     private void saveLines(Invoice invoice, List<InvoiceLineDraft> lines) {

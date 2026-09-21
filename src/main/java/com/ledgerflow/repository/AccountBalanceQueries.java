@@ -171,7 +171,7 @@ public class AccountBalanceQueries {
                 ) d ON TRUE
                 WHERE a.type IN ('REVENUE', 'EXPENSE')
                   AND a.is_postable = TRUE
-                  AND (COALESCE(s.balance, 0) + COALESCE(d.delta, 0)) <> 0
+                  AND (COALESCE(s.base_balance, 0) + COALESCE(d.base_delta, 0)) <> 0
                 """;
         return jdbc.query(sql, new MapSqlParameterSource("asOfDate", asOfDate), MAPPER);
     }

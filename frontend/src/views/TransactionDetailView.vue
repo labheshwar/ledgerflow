@@ -30,13 +30,21 @@ async function load() {
 
 onMounted(load)
 
+// Summed in base amount, not face amount: a foreign-currency entry's own
+// amount is in a currency other entries on the same transaction may not
+// share (an FX adjustment leg is always base-only), so adding raw amounts
+// across entries would add euros to dollars. base_amount is comparable and
+// addable regardless of what currency each entry actually posted in.
 const totalDebit = computed(
   () =>
-    transaction.value?.entries.filter((e) => e.direction === 'DEBIT').reduce((s, e) => s + e.amount, 0) ?? 0,
+    transaction.value?.entries.filter((e) => e.direction === 'DEBIT').reduce((s, e) => s + e.baseAmount, 0) ??
+    0,
 )
 const totalCredit = computed(
   () =>
-    transaction.value?.entries.filter((e) => e.direction === 'CREDIT').reduce((s, e) => s + e.amount, 0) ?? 0,
+    transaction.value?.entries
+      .filter((e) => e.direction === 'CREDIT')
+      .reduce((s, e) => s + e.baseAmount, 0) ?? 0,
 )
 
 // --- reversal ---
@@ -136,11 +144,17 @@ async function submitReversal() {
               <div style="text-align: right">Amount</div>
             </div>
             <div v-for="e in transaction.entries" :key="e.accountId + e.direction" class="entry-row">
-              <div>{{ e.accountName }}</div>
+              <div>
+                {{ e.accountName }}
+                <span v-if="e.fxAdjustment" class="pill pill-amber" style="margin-left: 6px">FX</span>
+              </div>
               <div>
                 <span :class="directionPillClass(e.direction)">{{ e.direction }}</span>
               </div>
-              <div class="amt">{{ formatMoney(e.amount, e.currency) }}</div>
+              <div class="amt">
+                {{ formatMoney(e.amount, e.currency) }}
+                <div v-if="e.amount !== e.baseAmount" class="baseamt">{{ formatMoney(e.baseAmount) }}</div>
+              </div>
             </div>
             <div class="slip-total">
               <span>Total debits / credits</span>
@@ -247,6 +261,10 @@ async function submitReversal() {
 .amt {
   font-family: 'IBM Plex Mono', monospace;
   text-align: right;
+}
+.baseamt {
+  font-size: 10.5px;
+  color: var(--ink-soft);
 }
 .slip-total {
   display: flex;

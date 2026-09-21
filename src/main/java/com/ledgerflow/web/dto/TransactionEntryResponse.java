@@ -10,7 +10,8 @@ public record TransactionEntryResponse(
         EntryType direction,
         BigDecimal amount,
         String currency,
-        BigDecimal baseAmount) {
+        BigDecimal baseAmount,
+        boolean fxAdjustment) {
 
     public static TransactionEntryResponse from(Entry entry) {
         return new TransactionEntryResponse(
@@ -19,6 +20,7 @@ public record TransactionEntryResponse(
                 entry.getEntryType(),
                 entry.getAmount(),
                 entry.getCurrency(),
-                entry.getBaseAmount());
+                entry.getBaseAmount(),
+                entry.isFxAdjustment());
     }
 }

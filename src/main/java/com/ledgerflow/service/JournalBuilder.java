@@ -2,6 +2,7 @@ package com.ledgerflow.service;
 
 import com.ledgerflow.domain.EntryType;
 import com.ledgerflow.money.Money;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,15 +60,29 @@ public final class JournalBuilder {
     }
 
     public JournalBuilder debit(Long accountId, Money amount) {
-        return line(accountId, EntryType.DEBIT, amount);
+        return line(accountId, EntryType.DEBIT, amount, null);
     }
 
     public JournalBuilder credit(Long accountId, Money amount) {
-        return line(accountId, EntryType.CREDIT, amount);
+        return line(accountId, EntryType.CREDIT, amount, null);
     }
 
-    private JournalBuilder line(Long accountId, EntryType type, Money amount) {
-        lines.add(new EntryLine(Objects.requireNonNull(accountId, "accountId"), type, amount));
+    /**
+     * Posts at a specific historical rate rather than the transaction
+     * date's own -- for relieving a receivable at exactly the rate it was
+     * booked at, not the rate today. See {@code PaymentService}'s own
+     * foreign-currency settlement for the reason this exists.
+     */
+    public JournalBuilder debitAtRate(Long accountId, Money amount, BigDecimal rate) {
+        return line(accountId, EntryType.DEBIT, amount, Objects.requireNonNull(rate, "rate"));
+    }
+
+    public JournalBuilder creditAtRate(Long accountId, Money amount, BigDecimal rate) {
+        return line(accountId, EntryType.CREDIT, amount, Objects.requireNonNull(rate, "rate"));
+    }
+
+    private JournalBuilder line(Long accountId, EntryType type, Money amount, BigDecimal rateOverride) {
+        lines.add(new EntryLine(Objects.requireNonNull(accountId, "accountId"), type, amount, rateOverride));
         return this;
     }
 

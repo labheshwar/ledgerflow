@@ -92,6 +92,11 @@ const navItems = [
     path: '<path d="M11.3 2.7l2 2-8 8-3 1 1-3z"></path><path d="M9.8 4.2l2 2"></path>',
   },
   {
+    to: '/fx-rates',
+    label: 'Exchange rates',
+    path: '<path d="M4 5.5h6"></path><path d="M8 3.5l2 2-2 2"></path><path d="M12 10.5H6"></path><path d="M8 12.5l-2-2 2-2"></path>',
+  },
+  {
     to: '/audit-log',
     label: 'Audit Log',
     path: '<circle cx="8" cy="8" r="6"></circle><path d="M8 5.2v3l2 1.1"></path>',

@@ -81,6 +81,7 @@ const router = createRouter({
       name: 'reconciliation',
       component: () => import('../views/ReconciliationView.vue'),
     },
+    { path: '/fx-rates', name: 'fx-rates', component: () => import('../views/FxRatesView.vue') },
   ],
 })
 

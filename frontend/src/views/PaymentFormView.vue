@@ -53,6 +53,19 @@ function documentLabel(doc: OpenDocument): string {
   return doc.number ?? `${doc.documentType === 'INVOICE' ? 'Draft invoice' : 'Draft bill'} #${doc.documentId}`
 }
 
+/**
+ * The payment itself has no currency picker -- the server derives it from
+ * whichever documents end up allocated against, and refuses to mix two.
+ * This is only ever shown so the amount field reads as what it will
+ * actually mean once at least one foreign-currency document is selected.
+ */
+const paymentCurrency = computed(() => {
+  const allocated = (openDocuments.value ?? []).filter(
+    (doc) => parseFloat(allocationsByDocument[keyFor(doc)] ?? '') > 0,
+  )
+  return allocated.find((doc) => doc.currency)?.currency ?? null
+})
+
 const submitAttempted = ref(false)
 const contactError = computed(() =>
   submitAttempted.value && contactId.value == null ? 'A contact is required.' : '',
@@ -136,7 +149,7 @@ function submit() {
             <input v-model="paymentDate" type="date" class="input" />
           </div>
           <div class="field" style="flex: 0 0 160px">
-            <label>Amount</label>
+            <label>Amount{{ paymentCurrency ? ` (${paymentCurrency})` : '' }}</label>
             <input v-model="amount" class="input amt" :class="{ error: amountError }" placeholder="0.00" />
             <div v-if="amountError" class="row-error">{{ amountError }}</div>
           </div>
@@ -156,7 +169,7 @@ function submit() {
           <div v-for="doc in openDocuments ?? []" :key="keyFor(doc)" class="entry-row">
             <div>{{ documentLabel(doc) }}</div>
             <div class="amt">{{ formatDate(doc.dueDate) }}</div>
-            <div class="amt">{{ formatMoney(doc.balance) }}</div>
+            <div class="amt">{{ formatMoney(doc.balance, doc.currency) }}</div>
             <input v-model="allocationsByDocument[keyFor(doc)]" class="input amt" placeholder="0.00" />
           </div>
         </template>

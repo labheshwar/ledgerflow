@@ -56,6 +56,18 @@ public class Entry {
     @Column(name = "fx_rate", nullable = false)
     private BigDecimal fxRate;
 
+    /**
+     * Marks the realized gain/loss leg a foreign-currency settlement posts
+     * when the rate at settlement differs from the rate its receivable was
+     * booked at. Always in the organization's own base currency -- an FX
+     * adjustment has no foreign-currency face value of its own -- and its
+     * own boolean rather than inferred from which account it landed on, so
+     * a report can separate "the business earned this" from "the exchange
+     * rate moved" without having to know the chart of accounts.
+     */
+    @Column(name = "is_fx_adjustment", nullable = false)
+    private boolean fxAdjustment;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -130,6 +142,14 @@ public class Entry {
 
     public void setFxRate(BigDecimal fxRate) {
         this.fxRate = fxRate;
+    }
+
+    public boolean isFxAdjustment() {
+        return fxAdjustment;
+    }
+
+    public void setFxAdjustment(boolean fxAdjustment) {
+        this.fxAdjustment = fxAdjustment;
     }
 
     public OffsetDateTime getCreatedAt() {

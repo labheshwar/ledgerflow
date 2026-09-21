@@ -127,6 +127,17 @@ a reconciliation process against an external source of truth, and a permanent au
   guard shape bills' own duplicate-vendor-bill check uses, is what actually enforces the dedupe
   — the preview is a courtesy, not the only thing standing in the way. A committed line is
   descriptive until the reconciliation workspace above matches it against something real.
+- **Foreign-currency invoices, with realized gain or loss posted automatically at
+  settlement** — an invoice raised in EUR posts its receivable and revenue legs in EUR, at
+  whatever rate is on file for its own issue date, frozen onto the entry the moment it posts.
+  Settling it later, at a different rate, relieves that receivable at the exact rate it was
+  booked at — not a fresh one — and the difference between that and the rate on the day it
+  settles becomes a base-currency-only adjustment leg, debited or credited to Foreign Exchange
+  Gain/Loss depending on which way the rate moved. The balance invariant that rejects an
+  unbalanced journal at construction time can't do that here, since balancing a mixed-currency
+  journal needs a rate lookup a plain value type has no access to — so for this one case it
+  moves to `PostingExecutor`, inside the same database transaction as every entry it would
+  write, rather than to the caller's leisure.
 
 ## Architecture
 ```mermaid
@@ -468,6 +479,46 @@ written, not after. `POST /payments/{id}/void` reverses the posting and reopens 
 settled -- there is no edit, only voiding, the same rule invoices and bills already follow once
 posted.
 
+Record an exchange rate, raise an invoice in that currency, then settle it later at a
+different rate and watch the realized gain or loss post on its own:
+
+```bash
+curl -s -X POST http://localhost:8080/fx-rates \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"currency": "EUR", "rate": 1.10, "asOfDate": "2026-09-01"}'
+
+EUR_INVOICE_ID=$(curl -s -X POST http://localhost:8080/invoices \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "contactId": 1, "issueDate": "2026-09-01", "dueDate": "2026-10-01", "currency": "EUR",
+    "lines": [{"description": "Consulting", "quantity": 1, "unitPrice": 100.00}]
+  }' | sed -E 's/.*"id":([0-9]+).*/\1/')
+
+curl -s -X POST http://localhost:8080/invoices/$EUR_INVOICE_ID/send -H "Authorization: Bearer $TOKEN"
+# postedTransactionId's own entries: DR Accounts Receivable 100.00 EUR (baseAmount 110.00),
+# CR Sales Revenue 100.00 EUR (baseAmount 110.00) -- the whole journal in EUR, at today's rate
+
+curl -s -X POST http://localhost:8080/fx-rates \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"currency": "EUR", "rate": 1.05, "asOfDate": "2026-10-01"}'
+
+curl -s -X POST http://localhost:8080/payments \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "contactId": 1, "direction": "RECEIVED", "paymentDate": "2026-10-01", "amount": 100.00,
+    "allocations": [{"documentType": "INVOICE", "documentId": '"$EUR_INVOICE_ID"', "amount": 100.00}]
+  }'
+# this posting's own entries: DR Cash 100.00 EUR (base 105.00), CR Accounts Receivable
+# 100.00 EUR (base 110.00, relieved at the invoice's OWN 1.10 rate, not today's 1.05) and a
+# third leg -- DR Foreign Exchange Gain/Loss 5.00, base currency only, isFxAdjustment true --
+# for the 5.00 the rate drop cost between the two dates
+```
+
+Recording the EUR rate again for the same date corrects it rather than adding a duplicate row.
+Sending a foreign-currency invoice before any rate exists for its own currency is refused as
+`MISSING_FX_RATE`; recording a rate for the organization's own base currency is refused as
+`CANNOT_RATE_BASE_CURRENCY`, since that rate is always, trivially, 1.
+
 Register a bank account against an existing Cash-type account, then walk a CSV statement
 through the wizard -- upload, map, preview, commit:
 
@@ -624,7 +675,7 @@ Error responses carry a stable, machine-readable `code` alongside the human-read
 
 Current codes: `UNBALANCED_TRANSACTION`, `ACCOUNT_NOT_FOUND`, `NOT_FOUND`, `INVALID_SORT`,
 `INVALID_PARAMETER`, `VALIDATION_FAILED`, `INVALID_CREDENTIALS`, `UNAUTHENTICATED`, `FORBIDDEN`,
-`INVALID_REQUEST`, `CURRENCY_MISMATCH`, `NOT_IMPLEMENTED`, `ACCOUNT_NOT_POSTABLE`,
+`INVALID_REQUEST`, `CURRENCY_MISMATCH`, `ACCOUNT_NOT_POSTABLE`,
 `ACCOUNT_ARCHIVED`, `INTERNAL_ERROR`, plus the chart of accounts' own rules — `DUPLICATE_CODE`,
 `INVALID_PARENT`, `ACCOUNT_IN_USE`, `SYSTEM_ACCOUNT`, `HAS_CHILDREN`, `MISSING_SYSTEM_ACCOUNT`,
 `INVALID_CODE`, `INVALID_NAME`, `INVALID_TYPE`, periods/closing's own —
@@ -647,8 +698,11 @@ payments too) — the statement import wizard's own — `INVALID_MAPPING`, `EMPT
 pointed at a heading or an archived account) — and the reconciliation workspace's own —
 `LINE_NOT_COMMITTED`, `LINE_ALREADY_MATCHED`, `LINE_NOT_MATCHED`, `ENTRY_WRONG_ACCOUNT`,
 `ENTRY_ALREADY_MATCHED`, `AMOUNT_DIRECTION_MISMATCH`, `DOCUMENT_ALREADY_SETTLED`,
-`BANK_ACCOUNT_NOT_FOUND` (the last one on `/payments` too, once a payment is scoped to a bank
-account that does not exist).
+`BANK_ACCOUNT_NOT_FOUND` (also on `/payments`, once a payment is scoped to a bank account that
+does not exist) — and exchange rates' own — `MISSING_FX_RATE`, `CANNOT_RATE_BASE_CURRENCY`,
+`INVALID_CURRENCY` (also on `/invoices`, for an unrecognized currency code),
+`MIXED_ALLOCATION_CURRENCIES`, `BANK_ACCOUNT_CURRENCY_UNSUPPORTED` (the last two on
+`/payments`, once foreign-currency invoices are involved).
 
 ### Watching the event stream
 
@@ -704,8 +758,15 @@ so you can read the contract before you have a token.
 A Vue 3 + Vite + TypeScript single-page app in [`frontend/`](frontend), styled after the
 original design mockups. It's a thin client over the API above — every page reads real data
 from the endpoints already described (accounts, transactions, contacts, tax rates, items,
-invoices, bills, payments, bank accounts, reconciliation, audit log) and nothing is mocked.
-`ADMIN` sees posting/reconciliation/editing controls; `VIEWER` gets the same pages read-only.
+invoices, bills, payments, bank accounts, reconciliation, exchange rates, audit log) and
+nothing is mocked. `ADMIN` sees posting/reconciliation/editing controls; `VIEWER` gets the
+same pages read-only.
+
+An invoice's own currency field defaults to blank (the organization's own base currency) and
+takes any three-letter code; its detail page, and a transaction's own ledger slip, already
+threaded amount + currency + a derived base amount through every figure before this milestone
+existed, so a foreign-currency invoice or an FX adjustment leg (marked with a small `FX` pill)
+renders correctly with no view-specific handling of its own.
 
 One page needs neither: `/public/invoices/:token`, reached from an invoice's own "Copy public
 link" action, renders outside the app shell entirely -- no sidebar, no login redirect, open to
@@ -746,10 +807,24 @@ This project is honest about where it's simplified, rather than hiding the gaps:
   written by a monthly job. Nothing depends on them for correctness (a missing snapshot only
   costs time), but a large ledger that has never run the job will read balances by summing
   all of history.
-- **No currency conversion yet** — entries already carry both the transaction amount and its
-  value in the organization's reporting currency, with the rate frozen at posting time, but
-  the only rate available is 1. Posting in a currency other than the reporting one is refused
-  outright rather than silently treated as par.
+- **Foreign currency reaches invoices and their settlement, not bills or a chosen bank
+  account** — `Accounts Receivable`, `Sales Revenue`, `Tax Payable`, `Customer Prepayments` and
+  `Cash` all accept a foreign-currency entry now; `Accounts Payable` and vendor-side accounts
+  do not, so a bill is still always in the organization's own base currency. Settling a
+  foreign invoice through a bank account scoped by the reconciliation workspace is refused
+  outright (`BANK_ACCOUNT_CURRENCY_UNSUPPORTED`) rather than posted somewhere it cannot later
+  be matched back to.
+- **A payment cannot settle two different currencies at once** — every invoice allocated
+  against one payment has to share a single currency, because there is one cash leg and it
+  can only be denominated in one currency. Settling a EUR invoice and a GBP invoice needs two
+  separate payments.
+- **Exchange rates are entered by hand, not fetched from anywhere** — `POST /fx-rates` is the
+  only source; there is no integration with a live rates feed, and a posting in a currency
+  with no rate on file is refused (`MISSING_FX_RATE`) rather than guessed at.
+- **Only two-decimal foreign currencies are meaningfully supported** — `InvoiceTotalsCalculator`
+  always rounds to two decimal places regardless of which currency an invoice is actually in,
+  the same simplification its own Javadoc already documented before milestone 15. A yen
+  invoice would compute a total `Money` cannot represent and fail at send time.
 - **Single-node Redis, RabbitMQ, Kafka and MinIO** — no HA or clustering for any of them, and
   the Kafka topic is created with replication factor 1. The outbox table is the durable record;
   Kafka is treated as transport that can be replayed into.

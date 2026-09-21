@@ -34,6 +34,7 @@ const contactId = ref<number | null>(props.initial?.contactId ?? null)
 const issueDate = ref(props.initial?.issueDate ?? new Date().toISOString().slice(0, 10))
 const dueDate = ref(props.initial?.dueDate ?? new Date().toISOString().slice(0, 10))
 const notes = ref(props.initial?.notes ?? '')
+const currency = ref(props.initial?.currency ?? '')
 
 const lines = reactive<DraftLine[]>(
   props.initial && props.initial.lines.length > 0
@@ -119,6 +120,7 @@ function submit() {
       unitPrice: parseFloat(l.unitPrice),
       taxRateId: l.taxRateId,
     })),
+    currency: currency.value.trim() || null,
   }
   emit('submit', body)
 }
@@ -146,6 +148,10 @@ defineExpose({ submit })
         <div class="field" style="flex: 0 0 150px">
           <label>Due date</label>
           <input v-model="dueDate" type="date" class="input" />
+        </div>
+        <div class="field" style="flex: 0 0 90px">
+          <label>Currency</label>
+          <input v-model="currency" class="input" placeholder="Org default" maxlength="3" />
         </div>
       </div>
       <div v-if="dateError" class="row-error" style="margin-bottom: 10px">{{ dateError }}</div>
