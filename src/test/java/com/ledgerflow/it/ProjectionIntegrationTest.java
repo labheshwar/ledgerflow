@@ -122,10 +122,16 @@ class ProjectionIntegrationTest extends AbstractIntegrationTest {
                 ContactType.CUSTOMER, "Projection Test Customer " + UUID.randomUUID(), null, null, null, null, null,
                 null, null, null, null, null));
 
+        // A year out from today, not a fixed calendar date: PeriodsAndReversalIntegrationTest
+        // closes most of the calendar year this same demo org otherwise shares, and a due
+        // date has to stay in the future relative to whenever this test actually runs for
+        // its own CURRENT-bucket assertion to hold -- a fixed past date drifts into
+        // "overdue" the moment real time moves past it.
+        LocalDate dueDate = LocalDate.now().plusYears(1);
         Invoice draft = invoiceService.create(new InvoiceDraft(
                 customer.getId(),
-                LocalDate.of(2026, 6, 1),
-                LocalDate.of(2026, 6, 30),
+                dueDate.minusDays(30),
+                dueDate,
                 "projection test",
                 List.of(new InvoiceLineDraft(null, "Consulting", BigDecimal.ONE, new BigDecimal(amount), null))));
 

@@ -57,7 +57,11 @@ class RealtimeIntegrationTest extends AbstractIntegrationTest {
 
         Account debit = newAccount("Realtime Backfill Debit");
         Account credit = newAccount("Realtime Backfill Credit");
-        postingService.post(JournalBuilder.forDate(LocalDate.of(2026, 7, 1))
+        // August, not July: PeriodsAndReversalIntegrationTest closes the whole
+        // of July 2026 in this same shared demo org, and its own test
+        // explicitly confirms August 1st stays open -- see its own assertion
+        // on that exact date.
+        postingService.post(JournalBuilder.forDate(LocalDate.of(2026, 8, 1))
                 .withIdempotencyKey("realtime-backfill-" + UUID.randomUUID())
                 .describedAs("realtime backfill test")
                 .debit(debit.getId(), Money.of("15.00", "USD"))
