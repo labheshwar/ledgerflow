@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Currency;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -50,16 +51,32 @@ public class FxRateService {
      */
     @Transactional(readOnly = true)
     public BigDecimal rateAsOf(String currency, LocalDate asOfDate) {
+        return rateAsOfIfKnown(currency, asOfDate)
+                .orElseThrow(() -> new FxRateException(
+                        "MISSING_FX_RATE",
+                        "No exchange rate for %s on or before %s -- record one first"
+                                .formatted(currency.toUpperCase(Locale.ROOT), asOfDate)));
+    }
+
+    /**
+     * The same lookup as {@link #rateAsOf}, but for a caller -- a report
+     * aggregating many documents at once -- for which "nobody has recorded
+     * this currency's rate yet" is a normal, expected outcome rather than a
+     * failure. Returning empty rather than throwing matters beyond
+     * ergonomics: this method is itself transactional, and an exception
+     * thrown out of it marks whatever transaction is already under way
+     * rollback-only before a caller's own try/catch ever gets a chance to
+     * decide the failure is recoverable.
+     */
+    @Transactional(readOnly = true)
+    public Optional<BigDecimal> rateAsOfIfKnown(String currency, LocalDate asOfDate) {
         String normalized = currency.toUpperCase(Locale.ROOT);
         if (normalized.equals(organizationService.baseCurrency())) {
-            return BigDecimal.ONE;
+            return Optional.of(BigDecimal.ONE);
         }
         return fxRateRepository
                 .findFirstByCurrencyAndAsOfDateLessThanEqualOrderByAsOfDateDesc(normalized, asOfDate)
-                .map(FxRate::getRate)
-                .orElseThrow(() -> new FxRateException(
-                        "MISSING_FX_RATE",
-                        "No exchange rate for %s on or before %s -- record one first".formatted(normalized, asOfDate)));
+                .map(FxRate::getRate);
     }
 
     /** Recording the same currency and date again corrects that rate rather than creating an ambiguous duplicate. */

@@ -9,6 +9,7 @@ import com.ledgerflow.exception.PaymentException;
 import com.ledgerflow.exception.StatementImportException;
 import com.ledgerflow.exception.MasterDataException;
 import com.ledgerflow.exception.PeriodException;
+import com.ledgerflow.exception.RealtimeException;
 import com.ledgerflow.exception.ReconciliationException;
 import com.ledgerflow.exception.UnbalancedTransactionException;
 import com.ledgerflow.money.CurrencyMismatchException;
@@ -91,6 +92,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(FxRateException.class)
     public ResponseEntity<ErrorResponse> handleFxRate(FxRateException e) {
         return error(HttpStatus.BAD_REQUEST, e.getCode(), e.getMessage());
+    }
+
+    /** An SSE ticket that is missing, expired, or already used. */
+    @ExceptionHandler(RealtimeException.class)
+    public ResponseEntity<ErrorResponse> handleRealtime(RealtimeException e) {
+        return error(HttpStatus.UNAUTHORIZED, e.getCode(), e.getMessage());
     }
 
     /**

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { authKeys, getCurrentUser, switchOrganization } from '@/lib/api/auth'
+import { realtime, type RealtimeMessage } from '@/lib/realtime'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 
@@ -9,6 +11,37 @@ const auth = useAuthStore()
 const toasts = useToastStore()
 const router = useRouter()
 const queryClient = useQueryClient()
+
+// One connection per session, not per view -- connect() is idempotent, so
+// every AppShell instance (one per navigation, since each view renders its
+// own) calling it on mount just confirms the same stream is open rather
+// than reopening it. Each instance's own subscription, though, really does
+// only last as long as that view is on screen.
+onMounted(() => {
+  if (auth.isAuthenticated) void realtime.connect()
+})
+
+const unsubscribeRealtime = realtime.subscribe(onRealtimeMessage)
+onUnmounted(unsubscribeRealtime)
+
+/**
+ * A single coarse invalidation for every ledger-changing event, rather than
+ * a bespoke rule per view: `transaction.posted` covers invoices, bills,
+ * payments and manual journals alike, since all of them post through the
+ * same PostingService. Re-fetching is cheap and idempotent; missing a
+ * refresh after a live push is the failure mode actually worth avoiding.
+ */
+function onRealtimeMessage(message: RealtimeMessage) {
+  if (message.eventType !== 'transaction.posted') return
+  void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  void queryClient.invalidateQueries({ queryKey: ['transactions'] })
+  void queryClient.invalidateQueries({ queryKey: ['accounts'] })
+  void queryClient.invalidateQueries({ queryKey: ['invoices'] })
+  void queryClient.invalidateQueries({ queryKey: ['bills'] })
+  void queryClient.invalidateQueries({ queryKey: ['payments'] })
+  void queryClient.invalidateQueries({ queryKey: ['ar-aging'] })
+  void queryClient.invalidateQueries({ queryKey: ['ap-aging'] })
+}
 
 const { data: me } = useQuery({
   queryKey: authKeys.me(),
@@ -21,14 +54,20 @@ const switchOrg = useMutation({
   onSuccess: ({ token }) => {
     // The organization is a claim inside the token, so switching means
     // adopting a new one -- and every cached query belongs to the old org.
+    // The realtime stream is bound to the org its ticket was issued for
+    // too, so it has to be torn down and reopened rather than left running
+    // against the org just switched away from.
+    realtime.close()
     auth.adopt(token)
     queryClient.clear()
+    void realtime.connect()
     toasts.success('Switched organization')
   },
   onError: () => toasts.error('Unable to switch organization.'),
 })
 
 function signOut() {
+  realtime.close()
   auth.logout()
   queryClient.clear()
   router.push({ name: 'login' })

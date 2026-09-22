@@ -129,6 +129,35 @@ export interface DashboardSummary {
   totalAccounts: number
   totalLedgerBalance: number
   postingsToday: number
+  openArTotal: number
+  overdueArTotal: number
+  openApTotal: number
+  overdueApTotal: number
+  updatedAt: string
+}
+
+export type AgingBucket = 'CURRENT' | 'DAYS_1_30' | 'DAYS_31_60' | 'DAYS_61_90' | 'DAYS_OVER_90'
+
+export interface ArAgingRow {
+  invoiceId: number
+  contactId: number
+  contactName: string
+  invoiceNumber: string | null
+  dueDate: string
+  currency: string
+  balance: number
+  bucket: AgingBucket
+}
+
+export interface ApAgingRow {
+  billId: number
+  contactId: number
+  contactName: string
+  billNumber: string | null
+  dueDate: string
+  currency: string
+  balance: number
+  bucket: AgingBucket
 }
 
 /** BOTH exists because plenty of small businesses buy from and sell to the same party. */

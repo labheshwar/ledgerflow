@@ -138,6 +138,28 @@ a reconciliation process against an external source of truth, and a permanent au
   journal needs a rate lookup a plain value type has no access to — so for this one case it
   moves to `PostingExecutor`, inside the same database transaction as every entry it would
   write, rather than to the caller's leisure.
+- **Read models kept current by the event stream, not recomputed on every request** — the
+  dashboard's own numbers and the AR/AP aging lists are rows in `dashboard_metrics`, `ar_aging`
+  and `ap_aging`, rebuilt by a Kafka consumer every time a `transaction.posted` event arrives for
+  that organization. The rebuild is always an absolute recompute from source (invoices, bills,
+  payment allocations), never an incremental adjustment to the row that was already there — so
+  replaying the same event once, twice, or rebuilding from an empty table all converge on the
+  same answer, which is what makes `POST /admin/projections/rebuild` a genuine recovery path
+  and not just a hope: stop the worker, let the read models go stale, call it, and the numbers
+  land exactly where a running projector would have put them, because both paths are the same
+  code. A foreign-currency row is converted to the organization's base currency at today's rate
+  before it enters a total; one whose currency has no rate on file yet is excluded from that
+  total rather than failing the whole dashboard.
+- **Live updates over Server-Sent Events, ticket-authenticated** — `EventSource` cannot set an
+  Authorization header, so `POST /events/ticket` (an ordinary Bearer-authenticated call) issues
+  a single-use, 30-second Redis-backed ticket that `GET /events/stream?ticket=...` trades in
+  once. A worker's projector republishes every event it applies onto a per-organization Redis
+  channel, and every web pod holding a browser connection for that organization relays it over
+  its own SSE stream — so the browser refetches an invoice, the dashboard or the aging lists the
+  moment the ledger changes, from any pod, without polling. A reconnecting browser sends back
+  `Last-Event-ID` (the outbox row's own id), and the stream replays everything published since
+  straight from the outbox table itself — Kafka is a transport, the outbox is the durable log,
+  and a browser missing a few seconds of connectivity never misses a fact permanently.
 
 ## Architecture
 ```mermaid
@@ -154,12 +176,14 @@ flowchart LR
         Poller[OutboxPoller]
         Import[StatementImportListener]
         Snapshots[BalanceSnapshotJob]
-        Consumer[Event consumers]
+        Projector[ProjectionEventListener]
     end
 
     Postgres[(PostgreSQL<br/>row-level security)]
     RabbitMQ{{RabbitMQ}}
     Kafka{{Kafka}}
+    Redis{{Redis<br/>pub/sub}}
+    Browser([Browser<br/>EventSource])
 
     Client -->|"POST /transactions<br/>GET /accounts/:id"| API
     Client -->|"bank-accounts/:id/reconciliation/..."| API
@@ -171,7 +195,8 @@ flowchart LR
     API -->|publish job| RabbitMQ -->|consume| Import --> Postgres
 
     Postgres -->|"FOR UPDATE SKIP LOCKED"| Poller -->|publish event| Kafka
-    Kafka --> Consumer
+    Kafka --> Projector -->|"rebuild dashboard_metrics<br/>ar_aging / ap_aging"| Postgres
+    Projector -->|"publish rt:org:{id}"| Redis -->|relay| API -->|"text/event-stream"| Browser
 ```
 
 Three paths, and one process split in two.
@@ -194,6 +219,13 @@ disagree, with no way afterwards to tell which is right. Writing the event as a 
 transaction happened" and "the event exists" one atomic fact, at the cost of at-least-once
 delivery — a crash after a successful send but before the row is marked published will
 republish it, so consumers deduplicate on `eventId`.
+
+`ProjectionEventListener` is that deduplication in practice: `processed_event(consumer_group,
+event_id)` is inserted `ON CONFLICT DO NOTHING` in the *same* transaction as the projection
+rebuild it guards, so a redelivered event either does nothing (the insert loses the race) or
+does the full rebuild again — never half of one. It runs as its own consumer group, separate
+from the first consumer that only ever logged what it received, so it can be reset and replayed
+from the beginning of the topic without disturbing anything else reading the same one.
 
 `PostingService.post()` retries on `OptimisticLockingFailureException`, and that only works if
 every attempt gets its own transaction. A caller that wraps the call in one of its own marks
@@ -219,10 +251,13 @@ with the entries that were supposed to explain it. It also could only ever answe
 balance now", not "what was it on 31 March", which is the question every financial statement
 actually asks.
 
-Redis is still in the stack but currently caches nothing: the balance cache that used to live
-there fronted a single-row lookup, and once that became a bounded aggregate it stopped being
-worth an invalidation hook on every posting. It earns its place again with live updates and
-report caching.
+Redis caches nothing — the balance cache that used to live there fronted a single-row lookup,
+and once that became a bounded aggregate it stopped being worth an invalidation hook on every
+posting — but it is not idle. It carries two things that are not caching at all: a single-use
+ticket that stands in for a JWT on the one connection that cannot present one (`EventSource`),
+and the pub/sub fan-out that gets a projector's own event from whichever worker applied it to
+whichever web pod happens to be holding the browser connection for that organization. Report
+caching (milestone 17) is still the thing that would earn Redis a cache back.
 
 Both halves run the **same image**, told by Spring profile which half to be. `web` serves HTTP
 and records outbox rows; `worker` drains the outbox, consumes queues and runs scheduled jobs.
@@ -598,6 +633,50 @@ Any of the three sets the line's `matchedEntryId`; `POST .../unmatch` clears it 
 touching the entry that was posted -- unmatching breaks the link, not the posting, so a line
 can be pointed at something else without ever double-posting.
 
+Read the dashboard and the aging lists straight from the projection, then watch the numbers
+move as soon as something posts — no polling, no manual refresh:
+
+```bash
+curl -s http://localhost:8080/dashboard/summary -H "Authorization: Bearer $TOKEN"
+# {"totalAccounts":13,"totalLedgerBalance":0.00,"postingsToday":0,
+#  "openArTotal":93.00,"overdueArTotal":0.00,"openApTotal":0.00,"overdueApTotal":0.00, ...}
+
+curl -s http://localhost:8080/ar-aging -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:8080/ap-aging -H "Authorization: Bearer $TOKEN"
+```
+
+Open the live stream: trade a one-time ticket for an SSE connection, and it starts announcing
+every posting for this organization as it happens (open a second terminal and post a payment
+while this one is running):
+
+```bash
+TICKET=$(curl -s -X POST http://localhost:8080/events/ticket -H "Authorization: Bearer $TOKEN" \
+  | sed -E 's/.*"ticket":"([^"]+)".*/\1/')
+
+curl -N "http://localhost:8080/events/stream?ticket=$TICKET"
+# id:36
+# event:transaction.posted
+# data:{"eventType":"transaction.posted","orgId":1,"payload":{...},...}
+```
+
+Reconnecting with `?lastEventId=35` (or the `Last-Event-ID` header, which a real `EventSource`
+sends automatically on reconnect) replays everything published since straight from the outbox
+table — so a browser that drops its connection for a few seconds catches up on what it missed
+rather than silently falling behind.
+
+Stop the worker, post something, watch the dashboard *not* move, then force a rebuild by hand —
+the same recompute the projector runs on every event, just triggered directly rather than by
+Kafka, and it lands on the identical numbers a running projector would have produced:
+
+```bash
+docker compose stop worker
+# ... post an invoice, send it ...
+curl -s http://localhost:8080/dashboard/summary -H "Authorization: Bearer $TOKEN"   # stale
+curl -s -X POST http://localhost:8080/admin/projections/rebuild -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:8080/dashboard/summary -H "Authorization: Bearer $TOKEN"   # caught up
+docker compose start worker
+```
+
 ### Organizations and tenant isolation
 
 Every user signs in to one organization at a time, and all ledger data belongs to exactly one
@@ -702,7 +781,8 @@ pointed at a heading or an archived account) — and the reconciliation workspac
 does not exist) — and exchange rates' own — `MISSING_FX_RATE`, `CANNOT_RATE_BASE_CURRENCY`,
 `INVALID_CURRENCY` (also on `/invoices`, for an unrecognized currency code),
 `MIXED_ALLOCATION_CURRENCIES`, `BANK_ACCOUNT_CURRENCY_UNSUPPORTED` (the last two on
-`/payments`, once foreign-currency invoices are involved).
+`/payments`, once foreign-currency invoices are involved) — and the SSE stream's own —
+`INVALID_TICKET` (a ticket that is unknown, expired, or already used).
 
 ### Watching the event stream
 
@@ -773,6 +853,16 @@ link" action, renders outside the app shell entirely -- no sidebar, no login red
 whoever holds the link, signed in or not. It is the one route the router's auth guard
 deliberately never touches.
 
+`AppShell` opens the SSE connection once per session (`connect()` is idempotent, so every view
+mounting its own `AppShell` instance just confirms the same stream is already open) and closes
+it on sign-out or an organization switch, since a stream is bound to the org its ticket was
+issued for. Every `transaction.posted` message invalidates the vue-query cache keys a change to
+the ledger could plausibly affect — dashboard, transactions, accounts, invoices, bills,
+payments, both aging lists — rather than a bespoke rule per view keeping track of exactly which
+document a given transaction touched; refetching is cheap and idempotent, and a missed refresh
+is a worse failure mode than a redundant one. The dashboard itself now reads `openArTotal`/
+`openApTotal` and a per-bucket breakdown of what's overdue, sourced from the same projection.
+
 In Docker, it's served by nginx at `http://localhost:8081`, with `/api/*` proxied to the `app`
 service (no CORS configuration needed since the browser only ever talks to one origin). For
 local development with hot reload against the backend from `docker compose`:
@@ -801,8 +891,6 @@ This project is honest about where it's simplified, rather than hiding the gaps:
 - **Traces are recorded but not exported** — spans exist and a `traceparent` propagates from
   an HTTP request through the outbox to a Kafka consumer, but nothing ships them to a
   collector yet, so there is no UI to look at a trace in.
-- **Events are published, not yet consumed for anything** — the only consumer logs what it
-  receives. Read models built from the stream come later.
 - **Snapshots are not yet scheduled anywhere but the worker** — balance checkpoints are
   written by a monthly job. Nothing depends on them for correctness (a missing snapshot only
   costs time), but a large ledger that has never run the job will read balances by summing
@@ -868,6 +956,28 @@ This project is honest about where it's simplified, rather than hiding the gaps:
 - **There is no way to dismiss a line that will never match anything** — every unmatched line
   is either matched, settled or categorized eventually; there is no "ignore" status for, say, a
   bank's own opening-balance line that reconciles against nothing.
+- **A projection rebuild recomputes the whole organization, not just what one event touched** —
+  every `transaction.posted` event triggers a fresh AR aging, AP aging and dashboard rebuild
+  across all of that organization's open invoices and bills, rather than adjusting only the
+  document the transaction actually affected. Correct and trivially replay-safe at this scale;
+  an organization with thousands of simultaneously open documents would want the projector to
+  work out which specific document changed instead.
+- **The SSE stream's own backfill is capped at 500 events** — a browser reconnecting after a
+  longer gap than that misses the oldest ones and only catches up from there; the read models
+  it would invalidate on are already correct regardless, since the projector does not depend on
+  a browser having seen every intermediate event, only on eventually being told something
+  changed.
+- **A bank statement import's own progress still polls rather than pushes** — the wizard's
+  `PROCESSING` step re-fetches every 800ms; it was already responsive before SSE existed, and
+  the outbox has no natural per-row event for a batch job that is not itself a ledger fact, so
+  it was left as is rather than invented one to replace something that already worked.
+- **No dedicated events for invoice, bill or payment lifecycle transitions** — the SSE stream
+  and the projector both key entirely off `transaction.posted`, the one event every document
+  service already causes by posting through `PostingService`. This is simpler than adding
+  `invoice.issued` / `payment.recorded` events of their own, and sufficient for what currently
+  consumes the stream (a coarse "something changed, refetch" signal), but a future consumer
+  wanting to know specifically *which* invoice without re-deriving it from the transaction's own
+  entries would need those events to exist.
 
 These are the natural next steps, not oversights being hidden.
 

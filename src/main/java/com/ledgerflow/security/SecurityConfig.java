@@ -57,6 +57,13 @@ public class SecurityConfig {
                         // to authenticate with. The token itself, 32 random
                         // bytes, is what stands in for a role check here.
                         .requestMatchers(HttpMethod.GET, "/public/**").permitAll()
+                        // EventSource cannot set an Authorization header, so
+                        // this connection is secured by a single-use ticket
+                        // instead of a JWT -- see RealtimeTicketService.
+                        // Issuing that ticket (POST /events/ticket) still
+                        // requires the ordinary Bearer auth every other
+                        // endpoint does, via the catch-all rule below.
+                        .requestMatchers(HttpMethod.GET, "/events/stream").permitAll()
                         // "/transactions/**" rather than the bare path, so
                         // posting a reversal at /transactions/{id}/reverse
                         // needs ADMIN exactly as posting the original did.
@@ -98,6 +105,10 @@ public class SecurityConfig {
                         // Recording an exchange rate changes what every
                         // foreign-currency posting from that point on means.
                         .requestMatchers(HttpMethod.POST, "/fx-rates/**").hasRole("ADMIN")
+                        // Rebuilding a projection is an operational action,
+                        // not a everyday read -- same tier as closing a
+                        // period.
+                        .requestMatchers(HttpMethod.POST, "/admin/projections/**").hasRole("ADMIN")
                         .anyRequest().hasAnyRole("ADMIN", "VIEWER"))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
